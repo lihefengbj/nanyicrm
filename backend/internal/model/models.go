@@ -25,7 +25,7 @@ type SysUser struct {
 	Status   int8      `gorm:"default:1" json:"status"` // 1 enabled, 0 disabled
 	Remark   string    `gorm:"size:255" json:"remark"`
 	Dept     *SysDept  `gorm:"foreignKey:DeptID" json:"dept,omitempty"`
-	Roles    []SysRole `gorm:"many2many:sys_user_role" json:"roles,omitempty"`
+	Roles    []SysRole `gorm:"many2many:sys_user_role;joinForeignKey:UserID;joinReferences:RoleID" json:"roles,omitempty"`
 }
 
 func (SysUser) TableName() string { return "sys_user" }
@@ -49,7 +49,7 @@ type SysRole struct {
 	Sort   int       `gorm:"default:0" json:"sort"`
 	Status int8      `gorm:"default:1" json:"status"`
 	Remark string    `gorm:"size:255" json:"remark"`
-	Menus  []SysMenu `gorm:"many2many:sys_role_menu" json:"menus,omitempty"`
+	Menus  []SysMenu `gorm:"many2many:sys_role_menu;joinForeignKey:RoleID;joinReferences:MenuID" json:"menus,omitempty"`
 }
 
 func (SysRole) TableName() string { return "sys_role" }

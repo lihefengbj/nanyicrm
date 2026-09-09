@@ -104,7 +104,9 @@ func (h *DeptHandler) Delete(c *gin.Context) {
 		common.FailMsg(c, common.CodeParamInvalid, "部门下存在用户，不可删除")
 		return
 	}
-	result := h.db.Delete(&model.SysDept{}, id)
+	// Hard delete for the same unique-index reason; dept is guarded above
+	// (no children, no users) so this stays safe.
+	result := h.db.Unscoped().Delete(&model.SysDept{}, id)
 	if result.RowsAffected == 0 {
 		common.Fail(c, common.CodeDeptNotFound)
 		return

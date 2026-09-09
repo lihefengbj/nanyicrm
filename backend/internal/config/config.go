@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,7 +44,7 @@ func Load() *Config {
 			Mode: getEnv("GIN_MODE", "debug"),
 		},
 		MySQL: MySQLConfig{
-			DSN: getEnv("MYSQL_DSN", "root:root@tcp(127.0.0.1:3306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local"),
+			DSN: withTimeoutDefaults(getEnv("MYSQL_DSN", "root:root@tcp(127.0.0.1:3306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local")),
 		},
 		Redis: RedisConfig{
 			Addr: getEnv("REDIS_ADDR", "127.0.0.1:6379"),
@@ -56,6 +57,20 @@ func Load() *Config {
 			RefreshTokenTTL: getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		},
 	}
+}
+
+// withTimeoutDefaults appends connect/read/write timeouts to the DSN when the
+// caller did not set any. Guards against silently-dropped remote connections
+// hanging queries for tens of seconds.
+func withTimeoutDefaults(dsn string) string {
+	if strings.Contains(dsn, "timeout=") || strings.Contains(dsn, "readTimeout=") {
+		return dsn
+	}
+	sep := "&"
+	if !strings.Contains(dsn, "?") {
+		sep = "?"
+	}
+	return dsn + sep + "timeout=10s&readTimeout=30s&writeTimeout=30s"
 }
 
 func getEnv(key, fallback string) string {

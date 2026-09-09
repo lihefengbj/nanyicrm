@@ -154,7 +154,9 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 		if err := tx.Where("role_id = ?", role.ID).Delete(&model.SysUserRole{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&role).Error
+		// Hard delete: the code unique index would otherwise keep
+		// blocking re-creation after a soft delete.
+		return tx.Unscoped().Delete(&role).Error
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)

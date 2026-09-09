@@ -4,3 +4,5 @@ bin/
 coverage.txt
 .env
 .idea/
+
+server.*.log

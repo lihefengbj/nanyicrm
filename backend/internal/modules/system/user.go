@@ -184,7 +184,9 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		if err := tx.Where("user_id = ?", user.ID).Delete(&model.SysUserRole{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&user).Error
+		// Hard delete: the username unique index would otherwise keep
+		// blocking re-creation after a soft delete.
+		return tx.Unscoped().Delete(&user).Error
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)

@@ -18,9 +18,22 @@ func NewMySQL(cfg config.MySQLConfig, debug bool) (*gorm.DB, error) {
 	if debug {
 		logLevel = gormlogger.Info
 	}
-	db, err := gorm.Open(gormmysql.Open(cfg.DSN), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(logLevel),
-	})
+	// The remote MySQL occasionally accepts TCP but stalls the handshake;
+	// retry with backoff so a transient blip does not kill the process.
+	var db *gorm.DB
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		db, err = gorm.Open(gormmysql.Open(cfg.DSN), &gorm.Config{
+			Logger: gormlogger.Default.LogMode(logLevel),
+		})
+		if err == nil {
+			break
+		}
+		if attempt == 5 {
+			return nil, fmt.Errorf("connect mysql: %w", err)
+		}
+		time.Sleep(time.Duration(attempt) * 2 * time.Second)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connect mysql: %w", err)
 	}
@@ -30,7 +43,11 @@ func NewMySQL(cfg config.MySQLConfig, debug bool) (*gorm.DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// The remote MySQL is behind a NAT that silently drops idle TCP
+	// connections; recycle pooled connections aggressively so we never
+	// reuse a dead one (surfaced as "invalid connection" after ~20s hangs).
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(30 * time.Second)
 	return db, nil
 }
 
