@@ -42,13 +42,48 @@ Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为�
 
 ## 快速开始
 
-仓库当前尚未加入可运行的应用代码。完成技术选型和基础工程搭建后，请在此补充：
+### 环境要求
 
-1. 环境依赖与版本要求
-2. 本地配置和环境变量
-3. 数据库初始化方式
-4. 前后端安装及启动命令
-5. 测试、构建和部署命令
+- Go 1.22+、Node 18+（建议 20 LTS）、pnpm 9+、Docker Desktop
+
+### 启动本地依赖（MySQL 8 + Redis 7）
+
+```bash
+docker compose -f deploy/docker-compose.dev.yml up -d
+```
+
+### 启动后端
+
+```bash
+cd backend
+cp .env.example .env   # 按需修改
+go run ./cmd/server
+```
+
+首次启动会自动建表并写入种子数据：内置管理员 `admin / admin123`（请登录后尽快修改）。
+
+### 启动前端
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+访问 http://localhost:5173 ，前端通过 Vite 代理将 `/api` 转发到 8080 端口的后端。
+
+### 测试与构建
+
+```bash
+# 后端
+cd backend
+go test ./...
+go build ./...
+
+# 前端
+cd frontend
+pnpm build
+```
 
 ## 开发约定
 
