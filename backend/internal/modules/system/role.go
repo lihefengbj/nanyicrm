@@ -8,11 +8,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/lihefengbj/nanyicrm/backend/internal/common"
+	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
 )
 
-const roleCodeAdmin = "admin"
-
+// Roles are global: shared by all tenants, managed on the platform side.
 type RoleHandler struct {
 	db *gorm.DB
 }
@@ -108,9 +108,17 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if role.Code == roleCodeAdmin && req.Code != roleCodeAdmin {
-		common.FailMsg(c, common.CodeParamInvalid, "内置管理员角色标识不可修改")
+	if role.Code == middleware.RoleCodeSuperAdmin && req.Code != middleware.RoleCodeSuperAdmin {
+		common.FailMsg(c, common.CodeParamInvalid, "内置超级管理员角色标识不可修改")
 		return
+	}
+	if req.Code != role.Code {
+		var dup int64
+		h.db.Model(&model.SysRole{}).Where("code = ? AND id <> ?", req.Code, role.ID).Count(&dup)
+		if dup > 0 {
+			common.Fail(c, common.CodeRoleExists)
+			return
+		}
 	}
 	role.Name = req.Name
 	role.Code = req.Code
@@ -143,8 +151,8 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 		common.Fail(c, common.CodeRoleNotFound)
 		return
 	}
-	if role.Code == roleCodeAdmin {
-		common.FailMsg(c, common.CodeParamInvalid, "内置管理员角色不可删除")
+	if role.Code == middleware.RoleCodeSuperAdmin {
+		common.FailMsg(c, common.CodeParamInvalid, "内置超级管理员角色不可删除")
 		return
 	}
 	err = h.db.Transaction(func(tx *gorm.DB) error {

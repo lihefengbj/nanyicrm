@@ -31,8 +31,8 @@ export const useUserStore = defineStore('user', {
     },
     hasPerm(perm: string): boolean {
       if (!this.profile) return false
-      if (this.profile.isAdmin) return true
-      return this.profile.perms.includes(perm)
+      if (this.profile.isAdmin || this.profile.isSuper) return true
+      return (this.profile.perms || []).includes(perm)
     },
     logout() {
       this.accessToken = ''
@@ -43,3 +43,4 @@ export const useUserStore = defineStore('user', {
     },
   },
 })
+

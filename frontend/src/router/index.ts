@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '部门管理', perm: 'system:dept:list' },
       },
       {
+        path: 'system/tenant',
+        name: 'SystemTenant',
+        component: () => import('@/views/system/tenant/index.vue'),
+        meta: { title: '租户管理', perm: 'system:tenant:list' },
+      },
+      {
         path: 'system/operlog',
         name: 'SystemOperLog',
         component: () => import('@/views/system/log/oper.vue'),
@@ -83,3 +89,4 @@ router.beforeEach(async (to) => {
 })
 
 export default router
+

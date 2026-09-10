@@ -11,7 +11,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	db, err := database.NewMySQL(cfg.MySQL, false)
+	db, err := database.NewMySQL(cfg.DefaultMySQL(), false)
 	if err != nil {
 		log.Fatalf("mysql: %v", err)
 	}
@@ -24,3 +24,4 @@ func main() {
 		log.Printf("purged %s: %d rows", t, res.RowsAffected)
 	}
 }
+

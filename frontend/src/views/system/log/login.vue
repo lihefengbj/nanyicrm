@@ -4,6 +4,11 @@
       <el-form-item label="用户名">
         <el-input v-model="query.username" placeholder="模糊搜索" clearable style="width: 180px" @keyup.enter="load" />
       </el-form-item>
+      <el-form-item v-if="isSuper" label="租户">
+        <el-select v-model="query.tenantId" placeholder="全部" clearable style="width: 160px" @change="load">
+          <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" :icon="Search" @click="load">查询</el-button>
       </el-form-item>
@@ -31,15 +36,29 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+defineOptions({ name: 'SystemLoginLog' })
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import { listLoginLogs } from '@/api/system'
-import type { LoginLog } from '@/types/api'
+import { listLoginLogs, listAllTenants } from '@/api/system'
+import type { LoginLog, Tenant } from '@/types/api'
+import { useUserStore } from '@/store/user'
 
 const loading = ref(false)
 const rows = ref<LoginLog[]>([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 10, username: '' })
+const query = reactive({ pageNum: 1, pageSize: 10, username: '', tenantId: undefined as number | undefined })
+const store = useUserStore()
+const isSuper = computed(() => store.profile?.isPrivileged ?? false)
+const tenantOptions = ref<Tenant[]>([])
+
+async function loadTenants() {
+  if (!isSuper.value) return
+  try {
+    tenantOptions.value = await listAllTenants()
+  } catch {
+    tenantOptions.value = []
+  }
+}
 
 function formatTime(t: string) {
   return t ? new Date(t).toLocaleString('zh-CN') : '-'
@@ -56,7 +75,10 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadTenants()
+})
 </script>
 
 <style scoped>
@@ -65,3 +87,8 @@ onMounted(load)
   justify-content: flex-end;
 }
 </style>
+
+
+
+
+

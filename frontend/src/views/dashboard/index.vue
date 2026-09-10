@@ -35,6 +35,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Dashboard' })
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
@@ -62,3 +63,4 @@ const roleText = computed(() => (store.profile?.roles.length ? store.profile.rol
   font-size: 13px;
 }
 </style>
+

@@ -28,7 +28,7 @@ func main() {
 	}
 
 	// Strip the database name from the DSN: user:pwd@tcp(host:port)/db?params
-	dsn := cfg.MySQL.DSN
+	dsn := cfg.DefaultMySQL().DSN
 	re := regexp.MustCompile(`\)/[^/?]*`)
 	dsn = re.ReplaceAllString(dsn, ")/")
 
@@ -47,3 +47,4 @@ func main() {
 	}
 	log.Printf("database %s ready", dbName)
 }
+

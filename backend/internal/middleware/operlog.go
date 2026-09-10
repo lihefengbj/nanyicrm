@@ -22,6 +22,7 @@ func OperLog(db *gorm.DB) gin.HandlerFunc {
 		}
 		module, action := splitModuleAction(c.FullPath())
 		entry := model.SysOperLog{
+			TenantID:   CurrentTenantID(c),
 			UserID:     CurrentUserID(c),
 			Username:   CurrentUsername(c),
 			Module:     module,

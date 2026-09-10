@@ -1,0 +1,44 @@
+/* Global theme: teal brand color aligned with the login page. */
+:root {
+  --el-color-primary: #0f766e;
+  --el-color-primary-dark-2: #115e59;
+  --el-color-primary-light-3: #3d9a92;
+  --el-color-primary-light-5: #6fb8b1;
+  --el-color-primary-light-7: #a3d5d0;
+  --el-color-primary-light-8: #c1e3e0;
+  --el-color-primary-light-9: #e0f2f0;
+
+  --brand-900: #134e4a;
+  --brand-800: #115e59;
+  --brand-700: #0f766e;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Element Plus refinements */
+.el-card {
+  border-radius: 8px;
+  border: 1px solid #e8ecef;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.el-table th.el-table__cell {
+  background: #f7faf9;
+  color: #374151;
+  font-weight: 600;
+}
+
+.el-button--primary {
+  --el-button-hover-bg-color: var(--brand-800);
+  --el-button-active-bg-color: var(--brand-900);
+}

@@ -64,6 +64,29 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		common.Fail(c, common.CodeAccountDisabled)
 		return
 	}
+	// Tenant gate: disabled or expired tenants cannot log in at all.
+	if user.TenantID != 0 {
+		var tenant model.SysTenant
+		if err := h.db.First(&tenant, user.TenantID).Error; err != nil {
+			loginLog.Success, loginLog.Message = false, "tenant missing"
+			h.db.Create(&loginLog)
+			common.Fail(c, common.CodeTenantNotFound)
+			return
+		}
+		loginLog.TenantID = tenant.ID
+		if tenant.Status != 1 {
+			loginLog.Success, loginLog.Message = false, "tenant disabled"
+			h.db.Create(&loginLog)
+			common.Fail(c, common.CodeTenantDisabled)
+			return
+		}
+		if tenant.ExpireAt != nil && tenant.ExpireAt.Before(time.Now()) {
+			loginLog.Success, loginLog.Message = false, "tenant expired"
+			h.db.Create(&loginLog)
+			common.Fail(c, common.CodeTenantExpired)
+			return
+		}
+	}
 
 	pair, err := common.GenerateTokenPair(h.cfg.JWT.SigningKey, h.cfg.JWT.AccessTokenTTL, h.cfg.JWT.RefreshTokenTTL, user.ID, user.Username)
 	if err != nil {
@@ -143,19 +166,27 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 
 	roleCodes := make([]string, 0, len(user.Roles))
 	roleIDs := make([]uint64, 0, len(user.Roles))
-	isAdmin := false
+	isSuper := false
+	isPrivileged := false
 	for _, r := range user.Roles {
 		if r.Status != 1 {
 			continue
 		}
 		roleCodes = append(roleCodes, r.Code)
 		roleIDs = append(roleIDs, r.ID)
-		if r.Code == roleCodeAdmin {
-			isAdmin = true
+		if r.Code == middleware.RoleCodeSuperAdmin {
+			isSuper = true
+		}
+		if r.Code == middleware.RoleCodeAdmin {
+			isPrivileged = true
 		}
 	}
+	if user.Username == middleware.UsernameSuperAdmin {
+		isSuper = true
+	}
+	isPrivileged = isPrivileged || isSuper
 
-	var perms []string
+	perms := []string{}
 	if len(roleIDs) > 0 {
 		h.db.Model(&model.SysMenu{}).
 			Joins("JOIN sys_role_menu rm ON rm.menu_id = sys_menu.id").
@@ -164,15 +195,27 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 			Pluck("sys_menu.perms", &perms)
 	}
 
+	var tenantInfo gin.H
+	if user.TenantID != 0 {
+		var tenant model.SysTenant
+		if err := h.db.First(&tenant, user.TenantID).Error; err == nil {
+			tenantInfo = gin.H{"id": tenant.ID, "code": tenant.Code, "name": tenant.Name}
+		}
+	}
+
 	common.OK(c, gin.H{
-		"id":       user.ID,
-		"username": user.Username,
-		"nickname": user.Nickname,
-		"email":    user.Email,
-		"phone":    user.Phone,
-		"dept":     user.Dept,
-		"roles":    roleCodes,
-		"perms":    perms,
-		"isAdmin":  isAdmin,
+		"id":           user.ID,
+		"tenantId":     user.TenantID,
+		"tenant":       tenantInfo,
+		"isSuper":      isSuper,
+		"isPrivileged": isPrivileged,
+		"username":     user.Username,
+		"nickname":     user.Nickname,
+		"email":        user.Email,
+		"phone":        user.Phone,
+		"dept":         user.Dept,
+		"roles":        roleCodes,
+		"perms":        perms,
+		"isAdmin":      isSuper, // kept for backward compatibility
 	})
 }

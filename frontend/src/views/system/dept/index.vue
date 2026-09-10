@@ -62,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SystemDept' })
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -137,3 +138,4 @@ async function onDelete(row: Dept) {
 
 onMounted(load)
 </script>
+

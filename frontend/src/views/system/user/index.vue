@@ -11,6 +11,11 @@
             <el-option label="停用" value="0" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="isPrivileged" label="租户">
+          <el-select v-model="query.tenantId" placeholder="全部" clearable style="width: 160px" @change="load">
+            <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="load">查询</el-button>
           <el-button v-if="store.hasPerm('system:user:create')" type="primary" plain :icon="Plus" @click="openDialog()">
@@ -21,6 +26,9 @@
 
       <el-table v-loading="loading" :data="rows" border stripe>
         <el-table-column prop="username" label="用户名" width="140" />
+        <el-table-column v-if="isPrivileged" label="租户" width="140">
+          <template #default="{ row }">{{ row.tenant?.name || '平台' }}</template>
+        </el-table-column>
         <el-table-column prop="nickname" label="昵称" width="140" />
         <el-table-column label="部门" width="140">
           <template #default="{ row }">{{ row.dept?.name || '-' }}</template>
@@ -61,6 +69,11 @@
         <el-form-item v-else label="重置密码">
           <el-input v-model="form.pwd" type="password" show-password placeholder="留空则不修改" />
         </el-form-item>
+        <el-form-item v-if="isPrivileged" label="所属租户" prop="tenantId">
+          <el-select v-model="form.tenantId" placeholder="请选择租户" style="width: 100%" @change="onTenantChange">
+            <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="昵称" prop="nickname">
           <el-input v-model="form.nickname" />
         </el-form-item>
@@ -98,7 +111,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+defineOptions({ name: 'SystemUser' })
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
 import {
@@ -108,20 +122,23 @@ import {
   deleteUser,
   listAllRoles,
   deptTree,
+  listAllTenants,
 } from '@/api/system'
-import type { Dept, Role, User } from '@/types/api'
+import type { Dept, Role, Tenant, User } from '@/types/api'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const isPrivileged = computed(() => store.profile?.isPrivileged ?? false)
 
 const loading = ref(false)
 const rows = ref<User[]>([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 10, username: '', status: '' })
+const query = reactive({ pageNum: 1, pageSize: 10, username: '', status: '', tenantId: undefined as number | undefined })
 
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
+const editingIsPlatform = ref(false)
 const formRef = ref<FormInstance>()
 const form = reactive({
   username: '',
@@ -133,6 +150,7 @@ const form = reactive({
   status: 1,
   remark: '',
   roleIds: [] as number[],
+  tenantId: undefined as number | undefined,
 })
 
 const formRules: FormRules = {
@@ -142,10 +160,29 @@ const formRules: FormRules = {
   ],
   pwd: [{ required: true, min: 6, message: '密码至少 6 位', trigger: 'blur' }],
   nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }],
+  tenantId: [{
+    validator: (_r: unknown, v: number | undefined, cb: (e?: Error) => void) => {
+      // Required for privileged users, except when editing a platform account (tenantId 0).
+      if (isPrivileged.value && !v && !editingIsPlatform.value) cb(new Error('请选择所属租户'))
+      else cb()
+    },
+    trigger: 'change',
+  }],
 }
 
 const roleOptions = ref<Role[]>([])
 const deptOptions = ref<Dept[]>([])
+const tenantOptions = ref<Tenant[]>([])
+
+async function onTenantChange(tid: number | undefined) {
+  // Roles are global; only dept options are tenant-scoped.
+  form.deptId = undefined
+  if (!tid) {
+    deptOptions.value = []
+    return
+  }
+  deptOptions.value = await deptTree(tid).catch(() => [])
+}
 
 async function load() {
   loading.value = true
@@ -159,10 +196,19 @@ async function load() {
 }
 
 async function loadOptions() {
+  // Roles are shared across tenants, always load globally.
   try {
     roleOptions.value = await listAllRoles()
   } catch {
     roleOptions.value = []
+  }
+  if (isPrivileged.value) {
+    try {
+      tenantOptions.value = await listAllTenants()
+    } catch {
+      tenantOptions.value = []
+    }
+    return // dept options load when a tenant is picked
   }
   try {
     deptOptions.value = await deptTree()
@@ -173,6 +219,7 @@ async function loadOptions() {
 
 function openDialog(row?: User) {
   editingId.value = row?.id ?? null
+  editingIsPlatform.value = !!row && !row.tenantId
   form.username = row?.username ?? ''
   form.pwd = ''
   form.nickname = row?.nickname ?? ''
@@ -182,7 +229,13 @@ function openDialog(row?: User) {
   form.status = row?.status ?? 1
   form.remark = row?.remark ?? ''
   form.roleIds = row?.roles?.map((r) => r.id) ?? []
+  form.tenantId = row?.tenantId ?? undefined
   dialogVisible.value = true
+  // Super admin: role/dept options are tenant-scoped, load them for the
+  // target tenant (on edit) or wait for tenant selection (on create).
+  if (isPrivileged.value && row?.tenantId) {
+    onTenantChange(row.tenantId)
+  }
 }
 
 async function onSave() {
@@ -228,3 +281,10 @@ onMounted(() => {
   justify-content: flex-end;
 }
 </style>
+
+
+
+
+
+
+

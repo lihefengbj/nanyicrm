@@ -22,16 +22,48 @@ export interface TokenPair {
   expiresIn: number
 }
 
+export interface TenantBrief {
+  id: number
+  code: string
+  name: string
+}
+
 export interface UserInfo {
   id: number
   username: string
   nickname: string
   email: string
   phone: string
+  tenantId: number
+  tenant?: TenantBrief
+  isSuper: boolean
+  isPrivileged: boolean
   dept?: Dept
   roles: string[]
   perms: string[]
   isAdmin: boolean
+}
+
+export interface Tenant {
+  id: number
+  code: string
+  name: string
+  contact: string
+  phone: string
+  expireAt?: string
+  status: number
+  remark: string
+  createdAt: string
+}
+
+export interface TenantSavePayload {
+  code: string
+  name: string
+  contact: string
+  phone: string
+  expireAt?: string
+  status: number
+  remark: string
 }
 
 export interface User {
@@ -41,6 +73,8 @@ export interface User {
   email: string
   phone: string
   deptId?: number
+  tenantId: number
+  tenant?: Tenant
   status: number
   remark: string
   dept?: Dept
@@ -55,6 +89,7 @@ export interface UserSavePayload {
   email: string
   phone: string
   deptId?: number
+  tenantId?: number
   status: number
   remark: string
   roleIds: number[]
@@ -115,6 +150,7 @@ export interface DeptSavePayload {
 
 export interface OperLog {
   id: number
+  tenantId: number
   userId: number
   username: string
   module: string
@@ -130,6 +166,7 @@ export interface OperLog {
 
 export interface LoginLog {
   id: number
+  tenantId: number
   username: string
   ip: string
   userAgent: string
@@ -137,3 +174,5 @@ export interface LoginLog {
   message: string
   createdAt: string
 }
+
+

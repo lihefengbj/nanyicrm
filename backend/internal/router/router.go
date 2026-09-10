@@ -25,7 +25,7 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 	v1.POST("/auth/refresh", auth.Refresh)
 
 	authed := v1.Group("")
-	authed.Use(middleware.JWTAuth(cfg.JWT.SigningKey), middleware.OperLog(db))
+	authed.Use(middleware.JWTAuth(db, cfg.JWT.SigningKey), middleware.OperLog(db))
 	{
 		authed.POST("/auth/logout", auth.Logout)
 		authed.GET("/auth/profile", auth.Profile)
@@ -51,6 +51,13 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 		authed.POST("/system/dept", middleware.RequirePerm(db, "system:dept:create"), dept.Create)
 		authed.PUT("/system/dept/:id", middleware.RequirePerm(db, "system:dept:update"), dept.Update)
 		authed.DELETE("/system/dept/:id", middleware.RequirePerm(db, "system:dept:delete"), dept.Delete)
+
+		tenant := system.NewTenantHandler(db)
+		authed.GET("/system/tenant", system.RequirePrivileged(), tenant.List)
+		authed.GET("/system/tenant/all", system.RequirePrivileged(), tenant.All)
+		authed.POST("/system/tenant", system.RequirePrivileged(), tenant.Create)
+		authed.PUT("/system/tenant/:id", system.RequirePrivileged(), tenant.Update)
+		authed.DELETE("/system/tenant/:id", system.RequirePrivileged(), tenant.Delete)
 
 		logs := system.NewLogHandler(db)
 		authed.GET("/system/log/oper", middleware.RequirePerm(db, "system:log:oper"), logs.OperList)

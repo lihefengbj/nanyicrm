@@ -70,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SystemRole' })
 import { nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
@@ -189,3 +190,4 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 </style>
+

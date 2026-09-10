@@ -1,0 +1,31 @@
+# nanyicrm backend configuration file.
+# Set CONFIG_PATH env var to point at a different file.
+
+server:
+  port: "8080"
+  mode: debug            # debug / release
+
+# Multiple MySQL connections are supported; "name" identifies each one.
+# The connection named "default" is used for auto-migrate, seed and business data.
+mysql:
+  - name: default
+    dsn: "root:7ujm8ik,@tcp(43.133.253.241:13306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local"
+  # - name: report
+  #   dsn: "user:pwd@tcp(127.0.0.1:3306)/report?charset=utf8mb4&parseTime=True&loc=Local"
+
+redis:
+  addr: "43.133.253.241:26739"
+  pwd: "6eNpKGpS4i2E6Dda"
+  db: 0
+
+jwt:
+  signing_key: "nanyicrm-dev-signing-key-change-me"   # change in production!
+  access_ttl: 2h
+  refresh_ttl: 168h
+
+log:
+  dir: log               # log output directory (relative to backend workdir)
+  file: server.log       # base name; actual file is server_yyyymmdd.log, rotated daily
+  retain_days: 30        # days to keep daily log files, 0 keeps forever
+
+
