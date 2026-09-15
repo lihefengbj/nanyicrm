@@ -39,6 +39,53 @@ func Run(db *gorm.DB) error {
 	if err := ensureSalesMenus(db); err != nil {
 		return err
 	}
+	if err := ensureDictMenu(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureDictMenu adds the M4 dictionary-management menu under /system and
+// grants it to the built-in roles. Idempotent.
+func ensureDictMenu(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.SysMenu{}).Where("perms = ?", "system:dict:list").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	var system model.SysMenu
+	if err := db.Where("path = ? AND type = 1", "/system").First(&system).Error; err != nil {
+		return nil
+	}
+	menu := model.SysMenu{ParentID: system.ID, Title: "字典管理", Type: 2, Path: "dict", Component: "system/dict/index", Perms: "system:dict:list", Sort: 7, Visible: 1, Status: 1}
+	if err := db.Create(&menu).Error; err != nil {
+		return err
+	}
+	buttons := []model.SysMenu{
+		{ParentID: menu.ID, Title: "新增", Type: 3, Perms: "system:dict:create", Sort: 1, Visible: 1, Status: 1},
+		{ParentID: menu.ID, Title: "编辑", Type: 3, Perms: "system:dict:update", Sort: 2, Visible: 1, Status: 1},
+		{ParentID: menu.ID, Title: "删除", Type: 3, Perms: "system:dict:delete", Sort: 3, Visible: 1, Status: 1},
+	}
+	if err := db.Create(&buttons).Error; err != nil {
+		return err
+	}
+	grant := append([]model.SysMenu{menu}, buttons...)
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(grant))
+		for _, m := range grant {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: m.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: dict menu created")
 	return nil
 }
 

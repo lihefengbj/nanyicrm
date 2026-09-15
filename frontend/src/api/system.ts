@@ -1,5 +1,9 @@
 import { del, get, post, put } from './request'
 import type {
+  Dict,
+  DictItem,
+  DictItemSavePayload,
+  DictSavePayload,
   Dept,
   DeptSavePayload,
   LoginLog,
@@ -88,6 +92,32 @@ export function updateTenant(id: number, data: TenantSavePayload) {
 }
 export function deleteTenant(id: number) {
   return del<void>(`/system/tenant/${id}`)
+}
+
+// ---- dict ----
+export function listDicts(query: PageQuery & { keyword?: string }) {
+  return get<PageResult<Dict>>('/system/dict', { ...query })
+}
+export function createDict(data: DictSavePayload) {
+  return post<{ id: number }>('/system/dict', data)
+}
+export function updateDict(id: number, data: DictSavePayload) {
+  return put<void>(`/system/dict/${id}`, data)
+}
+export function deleteDict(id: number) {
+  return del<void>(`/system/dict/${id}`)
+}
+export function dictItems(type: string) {
+  return get<DictItem[]>(`/system/dict/items/${type}`)
+}
+export function createDictItem(data: DictItemSavePayload) {
+  return post<{ id: number }>('/system/dict/item', data)
+}
+export function updateDictItem(id: number, data: DictItemSavePayload) {
+  return put<void>(`/system/dict/item/${id}`, data)
+}
+export function deleteDictItem(id: number) {
+  return del<void>(`/system/dict/item/${id}`)
 }
 
 

@@ -64,6 +64,17 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 		authed.GET("/system/log/oper", middleware.RequirePerm(db, "system:log:oper"), logs.OperList)
 		authed.GET("/system/log/login", middleware.RequirePerm(db, "system:log:login"), logs.LoginList)
 
+		dict := system.NewDictHandler(db)
+		authed.GET("/system/dict", middleware.RequirePerm(db, "system:dict:list"), dict.List)
+		authed.POST("/system/dict", middleware.RequirePerm(db, "system:dict:create"), dict.Create)
+		authed.PUT("/system/dict/:id", middleware.RequirePerm(db, "system:dict:update"), dict.Update)
+		authed.DELETE("/system/dict/:id", middleware.RequirePerm(db, "system:dict:delete"), dict.Delete)
+		authed.POST("/system/dict/item", middleware.RequirePerm(db, "system:dict:update"), dict.CreateItem)
+		authed.PUT("/system/dict/item/:id", middleware.RequirePerm(db, "system:dict:update"), dict.UpdateItem)
+		authed.DELETE("/system/dict/item/:id", middleware.RequirePerm(db, "system:dict:update"), dict.DeleteItem)
+		// Dropdown source for any authenticated user; no button perm needed.
+		authed.GET("/system/dict/items/:type", dict.Items)
+
 		customer := crm.NewCustomerHandler(db)
 		authed.GET("/crm/customer", middleware.RequirePerm(db, "crm:customer:list"), customer.List)
 		authed.GET("/crm/customer/all", middleware.RequirePerm(db, "crm:customer:list"), customer.All)

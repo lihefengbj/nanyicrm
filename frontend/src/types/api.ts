@@ -325,4 +325,41 @@ export interface DashboardSummary {
   opportunityStages: { stage: number; count: number; total: number }[]
 }
 
+// ---- dict ----
+
+export interface DictItem {
+  id: number
+  dictId: number
+  label: string
+  value: string
+  sort: number
+  status: number
+}
+
+export interface Dict {
+  id: number
+  tenantId: number
+  name: string
+  type: string
+  status: number
+  remark: string
+  items?: DictItem[]
+  createdAt: string
+}
+
+export interface DictSavePayload {
+  name: string
+  type: string
+  status: number
+  remark: string
+}
+
+export interface DictItemSavePayload {
+  dictId: number
+  label: string
+  value: string
+  sort: number
+  status: number
+}
+
 

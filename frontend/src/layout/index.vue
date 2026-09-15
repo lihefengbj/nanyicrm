@@ -32,6 +32,7 @@
           <el-menu-item v-if="store.hasPerm('system:user:list')" index="/system/user">用户管理</el-menu-item>
           <el-menu-item v-if="store.hasPerm('system:role:list')" index="/system/role">角色管理</el-menu-item>
           <el-menu-item v-if="store.hasPerm('system:dept:list')" index="/system/dept">部门管理</el-menu-item>
+          <el-menu-item v-if="store.hasPerm('system:dict:list')" index="/system/dict">字典管理</el-menu-item>
           <el-menu-item v-if="store.hasPerm('system:log:oper')" index="/system/operlog">操作日志</el-menu-item>
           <el-menu-item v-if="store.hasPerm('system:log:login')" index="/system/loginlog">登录日志</el-menu-item>
         </el-sub-menu>
@@ -90,6 +91,7 @@ const showSystem = computed(
     store.hasPerm('system:user:list') ||
     store.hasPerm('system:role:list') ||
     store.hasPerm('system:dept:list') ||
+    store.hasPerm('system:dict:list') ||
     store.hasPerm('system:log:oper') ||
     store.hasPerm('system:log:login'),
 )

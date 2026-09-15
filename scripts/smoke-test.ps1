@@ -208,6 +208,22 @@ $r = Invoke-Api DELETE "/api/v1/crm/opportunity/$oppId" -token $access
 Check "crm delete opportunity" ($r.Body.code -eq 0)
 Invoke-Api DELETE "/api/v1/crm/customer/$customerId" -token $access | Out-Null
 
+# 15e. M4 dict management
+$r = Invoke-Api POST /api/v1/system/dict @{ name = "冒烟字典"; type = "smoke_dict"; status = 1; remark = "" } -token $access
+Check "create dict" ($r.Body.code -eq 0)
+$dictId = $r.Body.data.id
+$r = Invoke-Api POST /api/v1/system/dict @{ name = "重复字典"; type = "smoke_dict"; status = 1; remark = "" } -token $access
+Check "duplicate dict type rejected" ($r.Body.code -eq 1001)
+$r = Invoke-Api POST /api/v1/system/dict/item @{ dictId = $dictId; label = "选项一"; value = "1"; sort = 1; status = 1 } -token $access
+Check "create dict item" ($r.Body.code -eq 0)
+$itemId = $r.Body.data.id
+$r = Invoke-Api GET "/api/v1/system/dict/items/smoke_dict" -token $access
+Check "dict items for dropdown" ($r.Body.code -eq 0 -and @($r.Body.data).Count -eq 1)
+$r = Invoke-Api DELETE "/api/v1/system/dict/item/$itemId" -token $access
+Check "delete dict item" ($r.Body.code -eq 0)
+$r = Invoke-Api DELETE "/api/v1/system/dict/$dictId" -token $access
+Check "delete dict" ($r.Body.code -eq 0)
+
 # 16. logout revokes refresh token
 $newRefresh = ((Invoke-Api POST /api/v1/auth/login @{ username = "admin"; pwd = "admin123" }).Body.data).refreshToken
 $r = Invoke-Api POST /api/v1/auth/logout @{ refreshToken = $newRefresh } -token $access

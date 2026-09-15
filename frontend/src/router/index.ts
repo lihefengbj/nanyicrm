@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '租户管理', perm: 'system:tenant:list' },
       },
       {
+        path: 'system/dict',
+        name: 'SystemDict',
+        component: () => import('@/views/system/dict/index.vue'),
+        meta: { title: '字典管理', perm: 'system:dict:list' },
+      },
+      {
         path: 'system/operlog',
         name: 'SystemOperLog',
         component: () => import('@/views/system/log/oper.vue'),

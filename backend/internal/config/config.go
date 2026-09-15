@@ -64,7 +64,7 @@ func Load() *Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Printf("config: %v, using built-in defaults\n", err)
-	} else if err := yaml.Unmarshal(data, cfg); err != nil {
+	} else if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(data))), cfg); err != nil {
 		// A malformed config file must not silently fall back to defaults.
 		panic(fmt.Sprintf("config: parse %s: %v", path, err))
 	}
