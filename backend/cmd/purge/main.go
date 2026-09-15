@@ -24,4 +24,3 @@ func main() {
 		log.Printf("purged %s: %d rows", t, res.RowsAffected)
 	}
 }
-

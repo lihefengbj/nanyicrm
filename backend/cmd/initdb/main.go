@@ -47,4 +47,3 @@ func main() {
 	}
 	log.Printf("database %s ready", dbName)
 }
-
