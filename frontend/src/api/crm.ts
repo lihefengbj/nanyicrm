@@ -6,6 +6,11 @@ import type {
   CustomerSavePayload,
   FollowUp,
   FollowUpSavePayload,
+  Contract,
+  ContractSavePayload,
+  DashboardSummary,
+  Opportunity,
+  OpportunitySavePayload,
   PageQuery,
   PageResult,
 } from '@/types/api'
@@ -53,4 +58,40 @@ export function updateFollowUp(id: number, data: FollowUpSavePayload) {
 }
 export function deleteFollowUp(id: number) {
   return del<void>(`/crm/follow/${id}`)
+}
+
+// ---- opportunity ----
+export function listOpportunities(query: PageQuery & { name?: string; customerId?: number; stage?: string; mine?: string }) {
+  return get<PageResult<Opportunity>>('/crm/opportunity', { ...query })
+}
+export function listAllOpportunities(customerId?: number) {
+  return get<Opportunity[]>('/crm/opportunity/all', customerId ? { customerId } : {})
+}
+export function createOpportunity(data: OpportunitySavePayload) {
+  return post<{ id: number }>('/crm/opportunity', data)
+}
+export function updateOpportunity(id: number, data: OpportunitySavePayload) {
+  return put<void>(`/crm/opportunity/${id}`, data)
+}
+export function deleteOpportunity(id: number) {
+  return del<void>(`/crm/opportunity/${id}`)
+}
+
+// ---- contract ----
+export function listContracts(query: PageQuery & { keyword?: string; customerId?: number; status?: string; mine?: string }) {
+  return get<PageResult<Contract>>('/crm/contract', { ...query })
+}
+export function createContract(data: ContractSavePayload) {
+  return post<{ id: number }>('/crm/contract', data)
+}
+export function updateContract(id: number, data: ContractSavePayload) {
+  return put<void>(`/crm/contract/${id}`, data)
+}
+export function deleteContract(id: number) {
+  return del<void>(`/crm/contract/${id}`)
+}
+
+// ---- dashboard ----
+export function dashboardSummary() {
+  return get<DashboardSummary>('/dashboard/summary')
 }

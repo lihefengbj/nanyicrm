@@ -222,3 +222,44 @@ type CrmFollowUp struct {
 }
 
 func (CrmFollowUp) TableName() string { return "crm_follow_up" }
+
+// CrmOpportunity is a sales opportunity tied to a customer. Stage walks the
+// sales pipeline: 1 初步接触, 2 需求确认, 3 方案报价, 4 商务谈判, 5 赢单, 6 输单.
+type CrmOpportunity struct {
+	Base
+	TenantID   uint64       `gorm:"index;default:0" json:"tenantId"`
+	CustomerID uint64       `gorm:"index;not null" json:"customerId"`
+	Name       string       `gorm:"size:128;not null" json:"name"`
+	Stage      int8         `gorm:"default:1;index" json:"stage"` // 1-6, see above
+	Amount     float64      `gorm:"type:decimal(12,2);default:0" json:"amount"`
+	ExpectDate *time.Time   `json:"expectDate"` // 预计成交日期
+	OwnerID    *uint64      `gorm:"index" json:"ownerId"`
+	Remark     string       `gorm:"size:255" json:"remark"`
+	Customer   *CrmCustomer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
+	Owner      *SysUser     `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+}
+
+func (CrmOpportunity) TableName() string { return "crm_opportunity" }
+
+// CrmContract is a signed (or signing) contract, optionally born from an
+// opportunity. Status: 1 草稿, 2 履行中, 3 已完成, 4 已作废.
+type CrmContract struct {
+	Base
+	TenantID      uint64          `gorm:"index;default:0" json:"tenantId"`
+	Code          string          `gorm:"size:64;index" json:"code"` // 合同编号，租户内唯一（代码保证）
+	Name          string          `gorm:"size:128;not null" json:"name"`
+	CustomerID    uint64          `gorm:"index;not null" json:"customerId"`
+	OpportunityID *uint64         `gorm:"index" json:"opportunityId"`
+	Amount        float64         `gorm:"type:decimal(12,2);default:0" json:"amount"`
+	SignDate      *time.Time      `json:"signDate"`
+	StartDate     *time.Time      `json:"startDate"`
+	EndDate       *time.Time      `json:"endDate"`
+	Status        int8            `gorm:"default:1" json:"status"`
+	OwnerID       *uint64         `gorm:"index" json:"ownerId"`
+	Remark        string          `gorm:"size:255" json:"remark"`
+	Customer      *CrmCustomer    `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
+	Opportunity   *CrmOpportunity `gorm:"foreignKey:OpportunityID" json:"opportunity,omitempty"`
+	Owner         *SysUser        `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+}
+
+func (CrmContract) TableName() string { return "crm_contract" }

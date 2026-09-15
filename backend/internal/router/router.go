@@ -82,6 +82,22 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 		authed.POST("/crm/follow", middleware.RequirePerm(db, "crm:follow:create"), follow.Create)
 		authed.PUT("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:update"), follow.Update)
 		authed.DELETE("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:delete"), follow.Delete)
+
+		opp := crm.NewOpportunityHandler(db)
+		authed.GET("/crm/opportunity", middleware.RequirePerm(db, "crm:opportunity:list"), opp.List)
+		authed.GET("/crm/opportunity/all", middleware.RequirePerm(db, "crm:opportunity:list"), opp.All)
+		authed.POST("/crm/opportunity", middleware.RequirePerm(db, "crm:opportunity:create"), opp.Create)
+		authed.PUT("/crm/opportunity/:id", middleware.RequirePerm(db, "crm:opportunity:update"), opp.Update)
+		authed.DELETE("/crm/opportunity/:id", middleware.RequirePerm(db, "crm:opportunity:delete"), opp.Delete)
+
+		contract := crm.NewContractHandler(db)
+		authed.GET("/crm/contract", middleware.RequirePerm(db, "crm:contract:list"), contract.List)
+		authed.POST("/crm/contract", middleware.RequirePerm(db, "crm:contract:create"), contract.Create)
+		authed.PUT("/crm/contract/:id", middleware.RequirePerm(db, "crm:contract:update"), contract.Update)
+		authed.DELETE("/crm/contract/:id", middleware.RequirePerm(db, "crm:contract:delete"), contract.Delete)
+
+		dashboard := crm.NewDashboardHandler(db)
+		authed.GET("/dashboard/summary", dashboard.Summary)
 	}
 
 	return r

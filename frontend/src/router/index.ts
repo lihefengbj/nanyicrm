@@ -39,6 +39,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '跟进记录', perm: 'crm:follow:list' },
       },
       {
+        path: 'sales/opportunity',
+        name: 'SalesOpportunity',
+        component: () => import('@/views/sales/opportunity/index.vue'),
+        meta: { title: '商机管理', perm: 'crm:opportunity:list' },
+      },
+      {
+        path: 'sales/contract',
+        name: 'SalesContract',
+        component: () => import('@/views/sales/contract/index.vue'),
+        meta: { title: '合同管理', perm: 'crm:contract:list' },
+      },
+      {
         path: 'system/user',
         name: 'SystemUser',
         component: () => import('@/views/system/user/index.vue'),

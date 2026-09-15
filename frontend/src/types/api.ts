@@ -252,4 +252,77 @@ export interface FollowUpSavePayload {
   nextAt?: string
 }
 
+// ---- sales ----
+
+export interface Opportunity {
+  id: number
+  tenantId: number
+  customerId: number
+  name: string
+  stage: number // 1 初步接触 2 需求确认 3 方案报价 4 商务谈判 5 赢单 6 输单
+  amount: number
+  expectDate?: string
+  ownerId?: number
+  remark: string
+  customer?: Customer
+  owner?: User
+  createdAt: string
+}
+
+export interface OpportunitySavePayload {
+  customerId: number
+  name: string
+  stage: number
+  amount: number
+  expectDate?: string
+  ownerId?: number
+  remark: string
+}
+
+export interface Contract {
+  id: number
+  tenantId: number
+  code: string
+  name: string
+  customerId: number
+  opportunityId?: number
+  amount: number
+  signDate?: string
+  startDate?: string
+  endDate?: string
+  status: number // 1 草稿 2 履行中 3 已完成 4 已作废
+  ownerId?: number
+  remark: string
+  customer?: Customer
+  opportunity?: Opportunity
+  owner?: User
+  createdAt: string
+}
+
+export interface ContractSavePayload {
+  code: string
+  name: string
+  customerId: number
+  opportunityId?: number
+  amount: number
+  signDate?: string
+  startDate?: string
+  endDate?: string
+  status: number
+  ownerId?: number
+  remark: string
+}
+
+export interface DashboardSummary {
+  customerTotal: number
+  myCustomerTotal: number
+  openOppCount: number
+  openOppAmount: number
+  contractTotal: number
+  contractAmount: number
+  followWeekCount: number
+  pendingFollowCount: number
+  opportunityStages: { stage: number; count: number; total: number }[]
+}
+
 

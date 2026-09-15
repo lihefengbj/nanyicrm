@@ -181,6 +181,33 @@ Check "crm delete contact" ($r.Body.code -eq 0)
 $r = Invoke-Api DELETE "/api/v1/crm/customer/$customerId" -token $access
 Check "crm delete customer" ($r.Body.code -eq 0)
 
+# 15d. M3 sales: opportunity / contract / dashboard
+$r = Invoke-Api POST /api/v1/crm/customer @{ name = "冒烟销售客户"; phone = ""; source = ""; industry = ""; level = "A"; status = 1; address = ""; remark = "" } -token $access
+$customerId = $r.Body.data.id
+$r = Invoke-Api POST /api/v1/crm/opportunity @{ customerId = $customerId; name = "冒烟商机"; stage = 3; amount = 88000; remark = "" } -token $access
+Check "crm create opportunity" ($r.Body.code -eq 0)
+$oppId = $r.Body.data.id
+$r = Invoke-Api GET "/api/v1/crm/opportunity?customerId=$customerId" -token $access
+Check "crm opportunity list filtered" ($r.Body.data.total -eq 1)
+$r = Invoke-Api POST /api/v1/crm/contract @{ code = "HT-SMOKE-001"; name = "冒烟合同"; customerId = $customerId; opportunityId = $oppId; amount = 88000; status = 2; remark = "" } -token $access
+Check "crm create contract" ($r.Body.code -eq 0)
+$contractId = $r.Body.data.id
+# the linked opportunity should have been won (stage 5)
+$r = Invoke-Api GET "/api/v1/crm/opportunity?customerId=$customerId" -token $access
+Check "linked opportunity auto-won (stage 5)" ($r.Body.data.records[0].stage -eq 5)
+# duplicate contract code within the same tenant rejected
+$r = Invoke-Api POST /api/v1/crm/contract @{ code = "HT-SMOKE-001"; name = "重复编号"; customerId = $customerId; amount = 1; status = 1; remark = "" } -token $access
+Check "duplicate contract code rejected" ($r.Body.code -eq 1001)
+$r = Invoke-Api GET "/api/v1/crm/contract?keyword=冒烟合同" -token $access
+Check "crm contract list finds it" ($r.Body.data.total -eq 1)
+$r = Invoke-Api GET /api/v1/dashboard/summary -token $access
+Check "dashboard summary ok" ($r.Body.code -eq 0 -and $r.Body.data.customerTotal -ge 1 -and $r.Body.data.contractAmount -ge 88000)
+$r = Invoke-Api DELETE "/api/v1/crm/contract/$contractId" -token $access
+Check "crm delete contract" ($r.Body.code -eq 0)
+$r = Invoke-Api DELETE "/api/v1/crm/opportunity/$oppId" -token $access
+Check "crm delete opportunity" ($r.Body.code -eq 0)
+Invoke-Api DELETE "/api/v1/crm/customer/$customerId" -token $access | Out-Null
+
 # 16. logout revokes refresh token
 $newRefresh = ((Invoke-Api POST /api/v1/auth/login @{ username = "admin"; pwd = "admin123" }).Body.data).refreshToken
 $r = Invoke-Api POST /api/v1/auth/logout @{ refreshToken = $newRefresh } -token $access

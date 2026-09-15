@@ -36,6 +36,66 @@ func Run(db *gorm.DB) error {
 	if err := ensureCrmMenus(db); err != nil {
 		return err
 	}
+	if err := ensureSalesMenus(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureSalesMenus adds the M3 sales menus (商机/合同) with button
+// permissions, granted to the built-in admin and superAdmin roles.
+// Idempotent like ensureCrmMenus.
+func ensureSalesMenus(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.SysMenu{}).Where("perms = ?", "crm:opportunity:list").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	dir := model.SysMenu{Title: "销售管理", Type: 1, Path: "/sales", Icon: "suitcase", Sort: 11, Visible: 1, Status: 1}
+	if err := db.Where("path = ? AND type = 1", "/sales").FirstOrCreate(&dir).Error; err != nil {
+		return err
+	}
+	menus := []model.SysMenu{
+		{ParentID: dir.ID, Title: "商机管理", Type: 2, Path: "opportunity", Component: "sales/opportunity/index", Perms: "crm:opportunity:list", Sort: 1, Visible: 1, Status: 1},
+		{ParentID: dir.ID, Title: "合同管理", Type: 2, Path: "contract", Component: "sales/contract/index", Perms: "crm:contract:list", Sort: 2, Visible: 1, Status: 1},
+	}
+	for i := range menus {
+		if err := db.Create(&menus[i]).Error; err != nil {
+			return err
+		}
+	}
+	all := append([]model.SysMenu{}, menus...)
+	for _, m := range menus {
+		prefix := m.Perms[:len(m.Perms)-len(":list")]
+		buttons := []model.SysMenu{
+			{ParentID: m.ID, Title: "新增", Type: 3, Perms: prefix + ":create", Sort: 1, Visible: 1, Status: 1},
+			{ParentID: m.ID, Title: "编辑", Type: 3, Perms: prefix + ":update", Sort: 2, Visible: 1, Status: 1},
+			{ParentID: m.ID, Title: "删除", Type: 3, Perms: prefix + ":delete", Sort: 3, Visible: 1, Status: 1},
+		}
+		if err := db.Create(&buttons).Error; err != nil {
+			return err
+		}
+		all = append(all, buttons...)
+	}
+
+	grant := append([]model.SysMenu{dir}, all...)
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(grant))
+		for _, m := range grant {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: m.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: sales menus created")
 	return nil
 }
 

@@ -27,6 +27,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.CrmCustomer{},
 		&model.CrmContact{},
 		&model.CrmFollowUp{},
+		&model.CrmOpportunity{},
+		&model.CrmContract{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

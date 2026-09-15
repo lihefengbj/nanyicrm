@@ -17,6 +17,11 @@
           <el-menu-item v-if="store.hasPerm('crm:contact:list')" index="/crm/contact">联系人</el-menu-item>
           <el-menu-item v-if="store.hasPerm('crm:follow:list')" index="/crm/follow">跟进记录</el-menu-item>
         </el-sub-menu>
+        <el-sub-menu v-if="showSales" index="/sales">
+          <template #title>销售管理</template>
+          <el-menu-item v-if="store.hasPerm('crm:opportunity:list')" index="/sales/opportunity">商机管理</el-menu-item>
+          <el-menu-item v-if="store.hasPerm('crm:contract:list')" index="/sales/contract">合同管理</el-menu-item>
+        </el-sub-menu>
 
         <el-sub-menu v-if="showSystem" index="/system">
           <template #title>
@@ -93,6 +98,11 @@ const showCrm = computed(
     store.hasPerm('crm:customer:list') ||
     store.hasPerm('crm:contact:list') ||
     store.hasPerm('crm:follow:list'),
+)
+const showSales = computed(
+  () =>
+    store.hasPerm('crm:opportunity:list') ||
+    store.hasPerm('crm:contract:list'),
 )
 
 async function onCommand(cmd: string) {
