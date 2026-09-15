@@ -170,3 +170,55 @@ type SysLoginLog struct {
 }
 
 func (SysLoginLog) TableName() string { return "sys_login_log" }
+
+// CrmCustomer is a customer profile owned by a tenant. OwnerID points to the
+// sys_user responsible for it (data permission: privileged users see all,
+// tenant users see their tenant's, and can filter down to their own).
+type CrmCustomer struct {
+	Base
+	TenantID uint64   `gorm:"index;default:0" json:"tenantId"`
+	Name     string   `gorm:"size:128;not null;index" json:"name"`
+	Phone    string   `gorm:"size:32" json:"phone"`
+	Source   string   `gorm:"size:32" json:"source"`   // e.g. 广告/转介绍/自拓
+	Industry string   `gorm:"size:64" json:"industry"` // 行业
+	Level    string   `gorm:"size:8" json:"level"`     // A/B/C
+	Status   int8     `gorm:"default:1" json:"status"` // 1 跟进中, 2 已成交, 3 已流失
+	OwnerID  *uint64  `gorm:"index" json:"ownerId"`
+	Address  string   `gorm:"size:255" json:"address"`
+	Remark   string   `gorm:"size:255" json:"remark"`
+	Owner    *SysUser `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+}
+
+func (CrmCustomer) TableName() string { return "crm_customer" }
+
+type CrmContact struct {
+	Base
+	TenantID   uint64       `gorm:"index;default:0" json:"tenantId"`
+	CustomerID uint64       `gorm:"index;not null" json:"customerId"`
+	Name       string       `gorm:"size:64;not null" json:"name"`
+	Phone      string       `gorm:"size:32" json:"phone"`
+	Email      string       `gorm:"size:128" json:"email"`
+	Position   string       `gorm:"size:64" json:"position"`
+	IsPrimary  int8         `gorm:"default:0" json:"isPrimary"` // 1 = 首要联系人
+	Remark     string       `gorm:"size:255" json:"remark"`
+	Customer   *CrmCustomer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
+}
+
+func (CrmContact) TableName() string { return "crm_contact" }
+
+// CrmFollowUp is one follow-up activity (call/visit/meeting) on a customer.
+type CrmFollowUp struct {
+	Base
+	TenantID   uint64       `gorm:"index;default:0" json:"tenantId"`
+	CustomerID uint64       `gorm:"index;not null" json:"customerId"`
+	ContactID  *uint64      `gorm:"index" json:"contactId"`
+	Type       int8         `gorm:"default:1" json:"type"` // 1 电话, 2 拜访, 3 会议, 4 其他
+	Content    string       `gorm:"size:1024;not null" json:"content"`
+	NextAt     *time.Time   `json:"nextAt"` // 下次跟进时间
+	CreatorID  uint64       `gorm:"index" json:"creatorId"`
+	Creator    string       `gorm:"size:64" json:"creator"` // username snapshot
+	Customer   *CrmCustomer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
+	Contact    *CrmContact  `gorm:"foreignKey:ContactID" json:"contact,omitempty"`
+}
+
+func (CrmFollowUp) TableName() string { return "crm_follow_up" }

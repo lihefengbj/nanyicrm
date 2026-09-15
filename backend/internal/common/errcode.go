@@ -11,18 +11,19 @@ const (
 	CodeLoginFailed     = 2004
 	CodeAccountDisabled = 2005
 
-	CodeUserNotFound   = 3001
-	CodeTenantNotFound = 3008
-	CodeTenantExists   = 3009
-	CodeTenantInUse    = 3010
-	CodeTenantDisabled = 3011
-	CodeTenantExpired  = 3012
-	CodeUserExists     = 3002
-	CodeRoleNotFound   = 3003
-	CodeRoleExists     = 3004
-	CodeMenuNotFound   = 3005
-	CodeDeptNotFound   = 3006
-	CodeRecordNotFound = 3007
+	CodeUserNotFound     = 3001
+	CodeTenantNotFound   = 3008
+	CodeTenantExists     = 3009
+	CodeTenantInUse      = 3010
+	CodeTenantDisabled   = 3011
+	CodeTenantExpired    = 3012
+	CodeUserExists       = 3002
+	CodeRoleNotFound     = 3003
+	CodeRoleExists       = 3004
+	CodeMenuNotFound     = 3005
+	CodeDeptNotFound     = 3006
+	CodeRecordNotFound   = 3007
+	CodeCustomerNotFound = 3013
 
 	CodeInternalError = 5001
 	CodeDBError       = 5002
@@ -39,18 +40,19 @@ var codeMessages = map[int]string{
 	CodeLoginFailed:     "用户名或密码错误",
 	CodeAccountDisabled: "账号已被停用",
 
-	CodeUserNotFound:   "用户不存在",
-	CodeTenantNotFound: "租户不存在",
-	CodeTenantExists:   "租户编码已存在",
-	CodeTenantInUse:    "租户下存在数据，不可删除",
-	CodeTenantDisabled: "租户已被停用",
-	CodeTenantExpired:  "租户已过期",
-	CodeUserExists:     "用户名已存在",
-	CodeRoleNotFound:   "角色不存在",
-	CodeRoleExists:     "角色标识已存在",
-	CodeMenuNotFound:   "菜单不存在",
-	CodeDeptNotFound:   "部门不存在",
-	CodeRecordNotFound: "记录不存在",
+	CodeUserNotFound:     "用户不存在",
+	CodeTenantNotFound:   "租户不存在",
+	CodeTenantExists:     "租户编码已存在",
+	CodeTenantInUse:      "租户下存在数据，不可删除",
+	CodeTenantDisabled:   "租户已被停用",
+	CodeTenantExpired:    "租户已过期",
+	CodeUserExists:       "用户名已存在",
+	CodeRoleNotFound:     "角色不存在",
+	CodeRoleExists:       "角色标识已存在",
+	CodeMenuNotFound:     "菜单不存在",
+	CodeDeptNotFound:     "部门不存在",
+	CodeRecordNotFound:   "记录不存在",
+	CodeCustomerNotFound: "客户不存在",
 
 	CodeInternalError: "系统内部错误",
 	CodeDBError:       "数据库操作失败",

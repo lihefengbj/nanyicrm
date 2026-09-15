@@ -33,6 +33,69 @@ func Run(db *gorm.DB) error {
 	if err := ensureTenantMenu(db); err != nil {
 		return err
 	}
+	if err := ensureCrmMenus(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureCrmMenus adds the M2 CRM menus (客户/联系人/跟进) plus their button
+// permissions, and grants them to the admin and superAdmin roles. Idempotent:
+// it checks for the customer list perm, so it works both on fresh databases
+// and on databases seeded before M2.
+func ensureCrmMenus(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.SysMenu{}).Where("perms = ?", "crm:customer:list").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	dir := model.SysMenu{Title: "客户管理", Type: 1, Path: "/crm", Icon: "user", Sort: 10, Visible: 1, Status: 1}
+	if err := db.Where("path = ? AND type = 1", "/crm").FirstOrCreate(&dir).Error; err != nil {
+		return err
+	}
+	menus := []model.SysMenu{
+		{ParentID: dir.ID, Title: "客户列表", Type: 2, Path: "customer", Component: "crm/customer/index", Perms: "crm:customer:list", Sort: 1, Visible: 1, Status: 1},
+		{ParentID: dir.ID, Title: "联系人", Type: 2, Path: "contact", Component: "crm/contact/index", Perms: "crm:contact:list", Sort: 2, Visible: 1, Status: 1},
+		{ParentID: dir.ID, Title: "跟进记录", Type: 2, Path: "follow", Component: "crm/follow/index", Perms: "crm:follow:list", Sort: 3, Visible: 1, Status: 1},
+	}
+	for i := range menus {
+		if err := db.Create(&menus[i]).Error; err != nil {
+			return err
+		}
+	}
+	all := append([]model.SysMenu{}, menus...)
+	for _, m := range menus {
+		prefix := m.Perms[:len(m.Perms)-len(":list")]
+		buttons := []model.SysMenu{
+			{ParentID: m.ID, Title: "新增", Type: 3, Perms: prefix + ":create", Sort: 1, Visible: 1, Status: 1},
+			{ParentID: m.ID, Title: "编辑", Type: 3, Perms: prefix + ":update", Sort: 2, Visible: 1, Status: 1},
+			{ParentID: m.ID, Title: "删除", Type: 3, Perms: prefix + ":delete", Sort: 3, Visible: 1, Status: 1},
+		}
+		if err := db.Create(&buttons).Error; err != nil {
+			return err
+		}
+		all = append(all, buttons...)
+	}
+
+	// Grant the new menus to the privileged built-in roles.
+	grant := append([]model.SysMenu{dir}, all...)
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(grant))
+		for _, m := range grant {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: m.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: CRM menus created")
 	return nil
 }
 

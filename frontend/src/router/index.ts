@@ -21,6 +21,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作台' },
       },
       {
+        path: 'crm/customer',
+        name: 'CrmCustomer',
+        component: () => import('@/views/crm/customer/index.vue'),
+        meta: { title: '客户列表', perm: 'crm:customer:list' },
+      },
+      {
+        path: 'crm/contact',
+        name: 'CrmContact',
+        component: () => import('@/views/crm/contact/index.vue'),
+        meta: { title: '联系人', perm: 'crm:contact:list' },
+      },
+      {
+        path: 'crm/follow',
+        name: 'CrmFollow',
+        component: () => import('@/views/crm/follow/index.vue'),
+        meta: { title: '跟进记录', perm: 'crm:follow:list' },
+      },
+      {
         path: 'system/user',
         name: 'SystemUser',
         component: () => import('@/views/system/user/index.vue'),

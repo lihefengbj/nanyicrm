@@ -7,6 +7,7 @@ import (
 
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
+	"github.com/lihefengbj/nanyicrm/backend/internal/modules/crm"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
 )
 
@@ -62,6 +63,25 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 		logs := system.NewLogHandler(db)
 		authed.GET("/system/log/oper", middleware.RequirePerm(db, "system:log:oper"), logs.OperList)
 		authed.GET("/system/log/login", middleware.RequirePerm(db, "system:log:login"), logs.LoginList)
+
+		customer := crm.NewCustomerHandler(db)
+		authed.GET("/crm/customer", middleware.RequirePerm(db, "crm:customer:list"), customer.List)
+		authed.GET("/crm/customer/all", middleware.RequirePerm(db, "crm:customer:list"), customer.All)
+		authed.POST("/crm/customer", middleware.RequirePerm(db, "crm:customer:create"), customer.Create)
+		authed.PUT("/crm/customer/:id", middleware.RequirePerm(db, "crm:customer:update"), customer.Update)
+		authed.DELETE("/crm/customer/:id", middleware.RequirePerm(db, "crm:customer:delete"), customer.Delete)
+
+		contact := crm.NewContactHandler(db)
+		authed.GET("/crm/contact", middleware.RequirePerm(db, "crm:contact:list"), contact.List)
+		authed.POST("/crm/contact", middleware.RequirePerm(db, "crm:contact:create"), contact.Create)
+		authed.PUT("/crm/contact/:id", middleware.RequirePerm(db, "crm:contact:update"), contact.Update)
+		authed.DELETE("/crm/contact/:id", middleware.RequirePerm(db, "crm:contact:delete"), contact.Delete)
+
+		follow := crm.NewFollowUpHandler(db)
+		authed.GET("/crm/follow", middleware.RequirePerm(db, "crm:follow:list"), follow.List)
+		authed.POST("/crm/follow", middleware.RequirePerm(db, "crm:follow:create"), follow.Create)
+		authed.PUT("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:update"), follow.Update)
+		authed.DELETE("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:delete"), follow.Delete)
 	}
 
 	return r

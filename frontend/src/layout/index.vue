@@ -11,6 +11,12 @@
           <el-icon><Monitor /></el-icon>
           <span>工作台</span>
         </el-menu-item>
+        <el-sub-menu v-if="showCrm" index="/crm">
+          <template #title>客户管理</template>
+          <el-menu-item v-if="store.hasPerm('crm:customer:list')" index="/crm/customer">客户列表</el-menu-item>
+          <el-menu-item v-if="store.hasPerm('crm:contact:list')" index="/crm/contact">联系人</el-menu-item>
+          <el-menu-item v-if="store.hasPerm('crm:follow:list')" index="/crm/follow">跟进记录</el-menu-item>
+        </el-sub-menu>
 
         <el-sub-menu v-if="showSystem" index="/system">
           <template #title>
@@ -81,6 +87,12 @@ const showSystem = computed(
     store.hasPerm('system:dept:list') ||
     store.hasPerm('system:log:oper') ||
     store.hasPerm('system:log:login'),
+)
+const showCrm = computed(
+  () =>
+    store.hasPerm('crm:customer:list') ||
+    store.hasPerm('crm:contact:list') ||
+    store.hasPerm('crm:follow:list'),
 )
 
 async function onCommand(cmd: string) {
