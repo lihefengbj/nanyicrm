@@ -21,6 +21,12 @@ func NewTenantHandler(db *gorm.DB) *TenantHandler {
 	return &TenantHandler{db: db}
 }
 
+// @Summary  租户分页列表
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant [get]
 func (h *TenantHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	keyword := strings.TrimSpace(c.Query("keyword"))
@@ -50,6 +56,12 @@ func (h *TenantHandler) List(c *gin.Context) {
 }
 
 // All returns enabled tenants for selectors (e.g. super admin's user form).
+// @Summary  全部租户（下拉用）
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant/all [get]
 func (h *TenantHandler) All(c *gin.Context) {
 	var tenants []model.SysTenant
 	if err := h.db.Where("status = 1").Order("id").Find(&tenants).Error; err != nil {
@@ -89,6 +101,12 @@ type dateError struct{}
 
 func (e *dateError) Error() string { return "invalid expireAt, want YYYY-MM-DD" }
 
+// @Summary  新增租户
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant [post]
 func (h *TenantHandler) Create(c *gin.Context) {
 	var req TenantSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -120,6 +138,12 @@ func (h *TenantHandler) Create(c *gin.Context) {
 	common.OK(c, gin.H{"id": tenant.ID})
 }
 
+// @Summary  编辑租户
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant/{id} [put]
 func (h *TenantHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -163,6 +187,12 @@ func (h *TenantHandler) Update(c *gin.Context) {
 }
 
 // Delete refuses to remove a tenant that still owns any data.
+// @Summary  删除租户
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant/{id} [delete]
 func (h *TenantHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

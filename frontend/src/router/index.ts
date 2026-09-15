@@ -1,6 +1,23 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { fetchProfile } from '@/api/auth'
+import type { Menu } from '@/types/api'
+
+// Every page component under src/views, keyed for menu.component lookup
+// (e.g. component "system/user/index" -> "/src/views/system/user/index.vue").
+const viewModules = import.meta.glob('../views/**/*.vue')
+
+function resolveView(component: string) {
+  return viewModules[`../views/${component}.vue`] ?? viewModules['../views/error/not-implemented.vue']
+}
+
+// joinPath builds the full route path from a parent dir path and a child
+// menu path: "/system" + "user" -> "/system/user". Absolute paths win.
+export function joinPath(base: string, path: string): string {
+  if (!path) return base
+  if (path.startsWith('/')) return path
+  return base ? `${base}/${path}` : `/${path}`
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -11,6 +28,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
+    name: 'Layout',
     component: () => import('@/layout/index.vue'),
     redirect: '/dashboard',
     children: [
@@ -19,78 +37,6 @@ const routes: RouteRecordRaw[] = [
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '工作台' },
-      },
-      {
-        path: 'crm/customer',
-        name: 'CrmCustomer',
-        component: () => import('@/views/crm/customer/index.vue'),
-        meta: { title: '客户列表', perm: 'crm:customer:list' },
-      },
-      {
-        path: 'crm/contact',
-        name: 'CrmContact',
-        component: () => import('@/views/crm/contact/index.vue'),
-        meta: { title: '联系人', perm: 'crm:contact:list' },
-      },
-      {
-        path: 'crm/follow',
-        name: 'CrmFollow',
-        component: () => import('@/views/crm/follow/index.vue'),
-        meta: { title: '跟进记录', perm: 'crm:follow:list' },
-      },
-      {
-        path: 'sales/opportunity',
-        name: 'SalesOpportunity',
-        component: () => import('@/views/sales/opportunity/index.vue'),
-        meta: { title: '商机管理', perm: 'crm:opportunity:list' },
-      },
-      {
-        path: 'sales/contract',
-        name: 'SalesContract',
-        component: () => import('@/views/sales/contract/index.vue'),
-        meta: { title: '合同管理', perm: 'crm:contract:list' },
-      },
-      {
-        path: 'system/user',
-        name: 'SystemUser',
-        component: () => import('@/views/system/user/index.vue'),
-        meta: { title: '用户管理', perm: 'system:user:list' },
-      },
-      {
-        path: 'system/role',
-        name: 'SystemRole',
-        component: () => import('@/views/system/role/index.vue'),
-        meta: { title: '角色管理', perm: 'system:role:list' },
-      },
-      {
-        path: 'system/dept',
-        name: 'SystemDept',
-        component: () => import('@/views/system/dept/index.vue'),
-        meta: { title: '部门管理', perm: 'system:dept:list' },
-      },
-      {
-        path: 'system/tenant',
-        name: 'SystemTenant',
-        component: () => import('@/views/system/tenant/index.vue'),
-        meta: { title: '租户管理', perm: 'system:tenant:list' },
-      },
-      {
-        path: 'system/dict',
-        name: 'SystemDict',
-        component: () => import('@/views/system/dict/index.vue'),
-        meta: { title: '字典管理', perm: 'system:dict:list' },
-      },
-      {
-        path: 'system/operlog',
-        name: 'SystemOperLog',
-        component: () => import('@/views/system/log/oper.vue'),
-        meta: { title: '操作日志', perm: 'system:log:oper' },
-      },
-      {
-        path: 'system/loginlog',
-        name: 'SystemLoginLog',
-        component: () => import('@/views/system/log/login.vue'),
-        meta: { title: '登录日志', perm: 'system:log:login' },
       },
     ],
   },
@@ -101,6 +47,38 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+// ---- dynamic routes from the profile menu tree ----
+
+const dynamicNames: string[] = []
+
+function registerMenuRoutes(menus: Menu[], base: string) {
+  for (const menu of menus) {
+    const full = joinPath(base, menu.path)
+    if (menu.type === 1) {
+      registerMenuRoutes(menu.children ?? [], full)
+      continue
+    }
+    if (menu.type !== 2) continue
+    const name = `menu-${menu.id}`
+    if (router.hasRoute(name)) continue
+    router.addRoute('Layout', {
+      path: full,
+      name,
+      component: resolveView(menu.component),
+      meta: { title: menu.title, perm: menu.perms || undefined },
+    })
+    dynamicNames.push(name)
+  }
+}
+
+// resetDynamicRoutes removes every route registered from menu data; called
+// on logout so the next login starts from a clean slate.
+export function resetDynamicRoutes() {
+  for (const name of dynamicNames.splice(0)) {
+    if (router.hasRoute(name)) router.removeRoute(name)
+  }
+}
 
 router.beforeEach(async (to) => {
   const store = useUserStore()
@@ -113,7 +91,12 @@ router.beforeEach(async (to) => {
   }
   if (!store.profile) {
     try {
-      store.setProfile(await fetchProfile())
+      const profile = await fetchProfile()
+      store.setProfile(profile)
+      registerMenuRoutes(profile.menus ?? [], '')
+      // Routes were just added during this navigation; re-resolve so the
+      // target (or a deep link) matches the freshly registered record.
+      return { path: to.fullPath, replace: true }
     } catch {
       return { path: '/login', query: { redirect: to.fullPath } }
     }
@@ -125,4 +108,3 @@ router.beforeEach(async (to) => {
 })
 
 export default router
-

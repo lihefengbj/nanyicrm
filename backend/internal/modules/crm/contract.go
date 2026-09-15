@@ -21,6 +21,12 @@ func NewContractHandler(db *gorm.DB) *ContractHandler {
 	return &ContractHandler{db: db}
 }
 
+// @Summary  合同分页列表
+// @Tags     CRM-合同
+// @Description 需要权限：crm:contract:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contract [get]
 func (h *ContractHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	keyword := strings.TrimSpace(c.Query("keyword"))
@@ -104,6 +110,12 @@ func validContractStatus(s int8) int8 {
 	return s
 }
 
+// @Summary  新增合同（关联商机自动赢单）
+// @Tags     CRM-合同
+// @Description 需要权限：crm:contract:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contract [post]
 func (h *ContractHandler) Create(c *gin.Context) {
 	var req ContractSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -164,6 +176,12 @@ func (h *ContractHandler) findInTenant(c *gin.Context, id uint64) (*model.CrmCon
 	return &contract, true
 }
 
+// @Summary  编辑合同
+// @Tags     CRM-合同
+// @Description 需要权限：crm:contract:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contract/{id} [put]
 func (h *ContractHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -202,6 +220,12 @@ func (h *ContractHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除合同
+// @Tags     CRM-合同
+// @Description 需要权限：crm:contract:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contract/{id} [delete]
 func (h *ContractHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

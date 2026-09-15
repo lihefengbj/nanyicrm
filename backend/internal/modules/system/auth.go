@@ -32,6 +32,12 @@ type LoginRequest struct {
 	Pwd      string `json:"pwd" binding:"required"`
 }
 
+// Login 账号密码登录
+// @Summary  登录，颁发 access/refresh token
+// @Tags     认证
+// @Param    body  body  LoginRequest  true  "登录请求"
+// @Success  200  {object}  common.TokenPair
+// @Router   /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -110,6 +116,12 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
 }
 
+// Refresh 刷新令牌
+// @Summary  用 refresh token 轮换新的 token 对
+// @Tags     认证
+// @Param    body  body  RefreshRequest  true  "刷新请求"
+// @Success  200  {object}  common.TokenPair
+// @Router   /auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -145,6 +157,13 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	common.OK(c, pair)
 }
 
+// Logout 登出
+// @Summary  吊销 refresh token
+// @Tags     认证
+// @Param    body  body  RefreshRequest  false  "要吊销的 refresh token"
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err == nil && req.RefreshToken != "" {
@@ -156,6 +175,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 // Profile returns the current user's info, role codes and permission strings.
+// @Summary  当前用户信息（含角色与权限标识）
+// @Tags     认证
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /auth/profile [get]
 func (h *AuthHandler) Profile(c *gin.Context) {
 	userID := middleware.CurrentUserID(c)
 	var user model.SysUser
@@ -195,6 +219,22 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 			Pluck("sys_menu.perms", &perms)
 	}
 
+	// Visible menu tree (dirs + menus, no buttons) for the dynamic sidebar
+	// and router. Super admins see every enabled menu; others see only what
+	// their roles grant. Hidden (visible=0) menus are included so the
+	// frontend can still register their routes.
+	var menus []model.SysMenu
+	if isSuper {
+		h.db.Where("status = 1 AND type IN (1, 2)").Order("sort, id").Find(&menus)
+	} else if len(roleIDs) > 0 {
+		h.db.Model(&model.SysMenu{}).
+			Joins("JOIN sys_role_menu rm ON rm.menu_id = sys_menu.id").
+			Where("rm.role_id IN ? AND sys_menu.status = 1 AND sys_menu.type IN (1, 2)", roleIDs).
+			Distinct().
+			Order("sys_menu.sort, sys_menu.id").
+			Find(&menus)
+	}
+
 	var tenantInfo gin.H
 	if user.TenantID != 0 {
 		var tenant model.SysTenant
@@ -216,6 +256,7 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 		"dept":         user.Dept,
 		"roles":        roleCodes,
 		"perms":        perms,
+		"menus":        buildMenuTree(menus, 0),
 		"isAdmin":      isSuper, // kept for backward compatibility
 	})
 }

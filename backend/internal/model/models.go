@@ -263,3 +263,19 @@ type CrmContract struct {
 }
 
 func (CrmContract) TableName() string { return "crm_contract" }
+
+// SysApi is one registered HTTP endpoint. The table is synchronized from the
+// Gin route table at boot (code is the source of truth); only Title is
+// maintained manually through the API-management page.
+type SysApi struct {
+	Base
+	Method  string `gorm:"size:8;uniqueIndex:uk_api_method_path;not null" json:"method"`
+	Path    string `gorm:"size:255;uniqueIndex:uk_api_method_path;not null" json:"path"`
+	Handler string `gorm:"size:128" json:"handler"`
+	Title   string `gorm:"size:64" json:"title"`
+	Module  string `gorm:"size:32;index" json:"module"` // system / crm / auth / dashboard
+	Perms   string `gorm:"size:128" json:"perms"`       // empty = no button-level perm required
+	Status  int8   `gorm:"default:1" json:"status"`     // 1 enabled, 0 disabled (reserved)
+}
+
+func (SysApi) TableName() string { return "sys_api" }

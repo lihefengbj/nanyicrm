@@ -42,6 +42,92 @@ func Run(db *gorm.DB) error {
 	if err := ensureDictMenu(db); err != nil {
 		return err
 	}
+	if err := ensureMenuMenu(db); err != nil {
+		return err
+	}
+	if err := ensureApiMenu(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureApiMenu adds the API-management page plus its update button under
+// /system. Idempotent.
+func ensureApiMenu(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.SysMenu{}).Where("perms = ?", "system:api:list").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	var system model.SysMenu
+	if err := db.Where("path = ? AND type = 1", "/system").First(&system).Error; err != nil {
+		return nil
+	}
+	menu := model.SysMenu{ParentID: system.ID, Title: "接口管理", Type: 2, Path: "api", Component: "system/api/index", Perms: "system:api:list", Sort: 8, Visible: 1, Status: 1}
+	if err := db.Create(&menu).Error; err != nil {
+		return err
+	}
+	button := model.SysMenu{ParentID: menu.ID, Title: "编辑名称", Type: 3, Perms: "system:api:update", Sort: 1, Visible: 1, Status: 1}
+	if err := db.Create(&button).Error; err != nil {
+		return err
+	}
+	grant := []model.SysMenu{menu, button}
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(grant))
+		for _, m := range grant {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: m.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: api-management menu created")
+	return nil
+}
+
+// ensureMenuMenu adds the menu-management page plus its button permissions
+// under /system on databases seeded before menu management existed.
+// Idempotent. (Fresh databases already get it from seedMenus.)
+func ensureMenuMenu(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.SysMenu{}).Where("perms = ?", "system:menu:create").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	var menu model.SysMenu
+	if err := db.Where("perms = ? AND type = 2", "system:menu:list").First(&menu).Error; err != nil {
+		return nil // base menus not seeded yet; seedMenus covers fresh databases
+	}
+	buttons := []model.SysMenu{
+		{ParentID: menu.ID, Title: "新增", Type: 3, Perms: "system:menu:create", Sort: 1, Visible: 1, Status: 1},
+		{ParentID: menu.ID, Title: "编辑", Type: 3, Perms: "system:menu:update", Sort: 2, Visible: 1, Status: 1},
+		{ParentID: menu.ID, Title: "删除", Type: 3, Perms: "system:menu:delete", Sort: 3, Visible: 1, Status: 1},
+	}
+	if err := db.Create(&buttons).Error; err != nil {
+		return err
+	}
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(buttons))
+		for _, b := range buttons {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: b.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: menu-management buttons added")
 	return nil
 }
 

@@ -21,6 +21,12 @@ func NewUserHandler(db *gorm.DB) *UserHandler {
 	return &UserHandler{db: db}
 }
 
+// @Summary  用户分页列表
+// @Tags     系统管理-用户
+// @Description 需要权限：system:user:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/user [get]
 func (h *UserHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	username := strings.TrimSpace(c.Query("username"))
@@ -108,6 +114,12 @@ func (h *UserHandler) resolveTenant(c *gin.Context, req *UserSaveRequest, userID
 	return tenantID, true
 }
 
+// @Summary  新增用户
+// @Tags     系统管理-用户
+// @Description 需要权限：system:user:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/user [post]
 func (h *UserHandler) Create(c *gin.Context) {
 	var req UserSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -177,6 +189,12 @@ func (h *UserHandler) findInTenant(c *gin.Context, id uint64) (*model.SysUser, b
 	return &user, true
 }
 
+// @Summary  编辑用户
+// @Tags     系统管理-用户
+// @Description 需要权限：system:user:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/user/{id} [put]
 func (h *UserHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -237,6 +255,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除用户
+// @Tags     系统管理-用户
+// @Description 需要权限：system:user:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/user/{id} [delete]
 func (h *UserHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

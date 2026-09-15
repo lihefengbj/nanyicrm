@@ -11,31 +11,7 @@
           <el-icon><Monitor /></el-icon>
           <span>工作台</span>
         </el-menu-item>
-        <el-sub-menu v-if="showCrm" index="/crm">
-          <template #title>客户管理</template>
-          <el-menu-item v-if="store.hasPerm('crm:customer:list')" index="/crm/customer">客户列表</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('crm:contact:list')" index="/crm/contact">联系人</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('crm:follow:list')" index="/crm/follow">跟进记录</el-menu-item>
-        </el-sub-menu>
-        <el-sub-menu v-if="showSales" index="/sales">
-          <template #title>销售管理</template>
-          <el-menu-item v-if="store.hasPerm('crm:opportunity:list')" index="/sales/opportunity">商机管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('crm:contract:list')" index="/sales/contract">合同管理</el-menu-item>
-        </el-sub-menu>
-
-        <el-sub-menu v-if="showSystem" index="/system">
-          <template #title>
-            <el-icon><Setting /></el-icon>
-            <span>系统管理</span>
-          </template>
-          <el-menu-item v-if="isPrivileged" index="/system/tenant">租户管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:user:list')" index="/system/user">用户管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:role:list')" index="/system/role">角色管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:dept:list')" index="/system/dept">部门管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:dict:list')" index="/system/dict">字典管理</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:log:oper')" index="/system/operlog">操作日志</el-menu-item>
-          <el-menu-item v-if="store.hasPerm('system:log:login')" index="/system/loginlog">登录日志</el-menu-item>
-        </el-sub-menu>
+        <SidebarItem :menus="store.profile?.menus ?? []" />
       </el-menu>
     </el-aside>
     <el-container>
@@ -72,11 +48,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Monitor, Setting, ArrowDown } from '@element-plus/icons-vue'
+import { Monitor, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { useTabsStore } from '@/store/tabs'
 import TabsBar from './TabsBar.vue'
+import SidebarItem from './SidebarItem.vue'
 import { logout } from '@/api/auth'
+import { resetDynamicRoutes } from '@/router'
 
 const route = useRoute()
 const router = useRouter()
@@ -85,27 +63,6 @@ const tabs = useTabsStore()
 
 const activePath = computed(() => route.path)
 const isSuper = computed(() => store.profile?.isSuper ?? false)
-const isPrivileged = computed(() => store.profile?.isPrivileged ?? false)
-const showSystem = computed(
-  () =>
-    store.hasPerm('system:user:list') ||
-    store.hasPerm('system:role:list') ||
-    store.hasPerm('system:dept:list') ||
-    store.hasPerm('system:dict:list') ||
-    store.hasPerm('system:log:oper') ||
-    store.hasPerm('system:log:login'),
-)
-const showCrm = computed(
-  () =>
-    store.hasPerm('crm:customer:list') ||
-    store.hasPerm('crm:contact:list') ||
-    store.hasPerm('crm:follow:list'),
-)
-const showSales = computed(
-  () =>
-    store.hasPerm('crm:opportunity:list') ||
-    store.hasPerm('crm:contract:list'),
-)
 
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
@@ -115,6 +72,7 @@ async function onCommand(cmd: string) {
       // best effort
     }
     store.logout()
+    resetDynamicRoutes()
     tabs.reset()
     router.push('/login')
   }

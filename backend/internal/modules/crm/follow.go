@@ -20,6 +20,12 @@ func NewFollowUpHandler(db *gorm.DB) *FollowUpHandler {
 	return &FollowUpHandler{db: db}
 }
 
+// @Summary  跟进记录分页列表
+// @Tags     CRM-跟进
+// @Description 需要权限：crm:follow:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/follow [get]
 func (h *FollowUpHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 
@@ -74,6 +80,12 @@ func (h *FollowUpHandler) validateRefs(c *gin.Context, req *FollowUpSaveRequest)
 	return true
 }
 
+// @Summary  新增跟进记录
+// @Tags     CRM-跟进
+// @Description 需要权限：crm:follow:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/follow [post]
 func (h *FollowUpHandler) Create(c *gin.Context) {
 	var req FollowUpSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -118,6 +130,12 @@ func (h *FollowUpHandler) findOwned(c *gin.Context, id uint64) (*model.CrmFollow
 	return &follow, true
 }
 
+// @Summary  编辑跟进记录（仅本人）
+// @Tags     CRM-跟进
+// @Description 需要权限：crm:follow:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/follow/{id} [put]
 func (h *FollowUpHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -151,6 +169,12 @@ func (h *FollowUpHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除跟进记录（仅本人）
+// @Tags     CRM-跟进
+// @Description 需要权限：crm:follow:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/follow/{id} [delete]
 func (h *FollowUpHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -15,7 +15,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("mysql: %v", err)
 	}
-	tables := []string{"sys_user", "sys_role", "sys_dept", "sys_menu", "sys_dict", "sys_dict_item"}
+	// Children before parents: sys_dict_item has an FK to sys_dict.
+	tables := []string{"sys_user", "sys_role", "sys_dept", "sys_menu", "sys_dict_item", "sys_dict"}
 	for _, t := range tables {
 		res := db.Exec("DELETE FROM " + t + " WHERE deleted_at IS NOT NULL")
 		if res.Error != nil {

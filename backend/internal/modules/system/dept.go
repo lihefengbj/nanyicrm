@@ -19,6 +19,12 @@ func NewDeptHandler(db *gorm.DB) *DeptHandler {
 	return &DeptHandler{db: db}
 }
 
+// @Summary  部门树
+// @Tags     系统管理-部门
+// @Description 需要权限：system:dept:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dept/tree [get]
 func (h *DeptHandler) Tree(c *gin.Context) {
 	query := middleware.TenantScope(c, h.db, "sys_dept")
 	if middleware.IsPrivileged(c) {
@@ -42,6 +48,12 @@ type DeptSaveRequest struct {
 	Status   int8   `json:"status"`
 }
 
+// @Summary  新增部门
+// @Tags     系统管理-部门
+// @Description 需要权限：system:dept:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dept [post]
 func (h *DeptHandler) Create(c *gin.Context) {
 	var req DeptSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -73,6 +85,12 @@ func (h *DeptHandler) findInTenant(c *gin.Context, id uint64) (*model.SysDept, b
 	return &dept, true
 }
 
+// @Summary  编辑部门
+// @Tags     系统管理-部门
+// @Description 需要权限：system:dept:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dept/{id} [put]
 func (h *DeptHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -106,6 +124,12 @@ func (h *DeptHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除部门
+// @Tags     系统管理-部门
+// @Description 需要权限：system:dept:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dept/{id} [delete]
 func (h *DeptHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

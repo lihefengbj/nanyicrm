@@ -1,8 +1,14 @@
 package router
 
 import (
+	"reflect"
+	"runtime"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
@@ -11,7 +17,51 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
 )
 
-func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
+// registrar wires a route and records it in the API registry at the same
+// time, keeping sys_api in sync with the code as the single source of truth.
+type registrar struct {
+	group *gin.RouterGroup
+	db    *gorm.DB
+	items *[]system.ApiEntry
+}
+
+func (r *registrar) handle(method, path, perms string, handlers ...gin.HandlerFunc) {
+	*r.items = append(*r.items, system.ApiEntry{Method: method, Path: "/api/v1" + path, Handler: handlerName(handlers[len(handlers)-1]), Perms: perms})
+	r.group.Handle(method, path, handlers...)
+}
+
+// perm registers a route guarded by a button-level permission string.
+func (r *registrar) perm(method, path, perms string, h gin.HandlerFunc) {
+	r.handle(method, path, perms, middleware.RequirePerm(r.db, perms), h)
+}
+
+// open registers a route that only requires login (no button-level perm).
+func (r *registrar) open(method, path string, h gin.HandlerFunc) {
+	r.handle(method, path, "", h)
+}
+
+// privileged registers a route restricted to superAdmin / admin.
+func (r *registrar) privileged(method, path string, h gin.HandlerFunc) {
+	r.handle(method, path, "", system.RequirePrivileged(), h)
+}
+
+func handlerName(h gin.HandlerFunc) string {
+	full := runtime.FuncForPC(reflect.ValueOf(h).Pointer()).Name()
+	if i := strings.LastIndex(full, "/"); i >= 0 {
+		full = full[i+1:]
+	}
+	// e.g. system.(*UserHandler).List-fm -> system.UserHandler.List
+	full = strings.TrimSuffix(full, "-fm")
+	full = strings.ReplaceAll(full, "(", "")
+	full = strings.ReplaceAll(full, ")", "")
+	full = strings.ReplaceAll(full, "*", "")
+	return full
+}
+
+// New builds the Gin engine and returns it together with the API registry
+// collected during wiring. main.go passes the registry to system.SyncApis
+// once the database is ready.
+func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry) {
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CORS())
 
@@ -19,97 +69,114 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *gin.Engine {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
+	// Swagger UI is available outside production only.
+	if cfg.App.Env != "prod" {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
+
+	registry := make([]system.ApiEntry, 0, 64)
+
 	v1 := r.Group("/api/v1")
+	pub := &registrar{group: v1, db: db, items: &registry}
 
 	auth := system.NewAuthHandler(db, rdb, cfg)
-	v1.POST("/auth/login", auth.Login)
-	v1.POST("/auth/refresh", auth.Refresh)
+	pub.open("POST", "/auth/login", auth.Login)
+	pub.open("POST", "/auth/refresh", auth.Refresh)
 
 	authed := v1.Group("")
 	authed.Use(middleware.JWTAuth(db, cfg.JWT.SigningKey), middleware.OperLog(db))
-	{
-		authed.POST("/auth/logout", auth.Logout)
-		authed.GET("/auth/profile", auth.Profile)
+	a := &registrar{group: authed, db: db, items: &registry}
 
-		user := system.NewUserHandler(db)
-		authed.GET("/system/user", middleware.RequirePerm(db, "system:user:list"), user.List)
-		authed.POST("/system/user", middleware.RequirePerm(db, "system:user:create"), user.Create)
-		authed.PUT("/system/user/:id", middleware.RequirePerm(db, "system:user:update"), user.Update)
-		authed.DELETE("/system/user/:id", middleware.RequirePerm(db, "system:user:delete"), user.Delete)
+	a.open("POST", "/auth/logout", auth.Logout)
+	a.open("GET", "/auth/profile", auth.Profile)
 
-		role := system.NewRoleHandler(db)
-		authed.GET("/system/role", middleware.RequirePerm(db, "system:role:list"), role.List)
-		authed.GET("/system/role/all", middleware.RequirePerm(db, "system:role:list"), role.All)
-		authed.POST("/system/role", middleware.RequirePerm(db, "system:role:create"), role.Create)
-		authed.PUT("/system/role/:id", middleware.RequirePerm(db, "system:role:update"), role.Update)
-		authed.DELETE("/system/role/:id", middleware.RequirePerm(db, "system:role:delete"), role.Delete)
+	user := system.NewUserHandler(db)
+	a.perm("GET", "/system/user", "system:user:list", user.List)
+	a.perm("POST", "/system/user", "system:user:create", user.Create)
+	a.perm("PUT", "/system/user/:id", "system:user:update", user.Update)
+	a.perm("DELETE", "/system/user/:id", "system:user:delete", user.Delete)
 
-		menu := system.NewMenuHandler(db)
-		authed.GET("/system/menu/tree", middleware.RequirePerm(db, "system:menu:list"), menu.Tree)
+	role := system.NewRoleHandler(db)
+	a.perm("GET", "/system/role", "system:role:list", role.List)
+	a.perm("GET", "/system/role/all", "system:role:list", role.All)
+	a.perm("POST", "/system/role", "system:role:create", role.Create)
+	a.perm("PUT", "/system/role/:id", "system:role:update", role.Update)
+	a.perm("DELETE", "/system/role/:id", "system:role:delete", role.Delete)
 
-		dept := system.NewDeptHandler(db)
-		authed.GET("/system/dept/tree", middleware.RequirePerm(db, "system:dept:list"), dept.Tree)
-		authed.POST("/system/dept", middleware.RequirePerm(db, "system:dept:create"), dept.Create)
-		authed.PUT("/system/dept/:id", middleware.RequirePerm(db, "system:dept:update"), dept.Update)
-		authed.DELETE("/system/dept/:id", middleware.RequirePerm(db, "system:dept:delete"), dept.Delete)
+	menu := system.NewMenuHandler(db)
+	a.perm("GET", "/system/menu/tree", "system:menu:list", menu.Tree)
+	a.perm("POST", "/system/menu", "system:menu:create", menu.Create)
+	a.perm("PUT", "/system/menu/:id", "system:menu:update", menu.Update)
+	a.perm("DELETE", "/system/menu/:id", "system:menu:delete", menu.Delete)
 
-		tenant := system.NewTenantHandler(db)
-		authed.GET("/system/tenant", system.RequirePrivileged(), tenant.List)
-		authed.GET("/system/tenant/all", system.RequirePrivileged(), tenant.All)
-		authed.POST("/system/tenant", system.RequirePrivileged(), tenant.Create)
-		authed.PUT("/system/tenant/:id", system.RequirePrivileged(), tenant.Update)
-		authed.DELETE("/system/tenant/:id", system.RequirePrivileged(), tenant.Delete)
+	dept := system.NewDeptHandler(db)
+	a.perm("GET", "/system/dept/tree", "system:dept:list", dept.Tree)
+	a.perm("POST", "/system/dept", "system:dept:create", dept.Create)
+	a.perm("PUT", "/system/dept/:id", "system:dept:update", dept.Update)
+	a.perm("DELETE", "/system/dept/:id", "system:dept:delete", dept.Delete)
 
-		logs := system.NewLogHandler(db)
-		authed.GET("/system/log/oper", middleware.RequirePerm(db, "system:log:oper"), logs.OperList)
-		authed.GET("/system/log/login", middleware.RequirePerm(db, "system:log:login"), logs.LoginList)
+	tenant := system.NewTenantHandler(db)
+	a.privileged("GET", "/system/tenant", tenant.List)
+	a.privileged("GET", "/system/tenant/all", tenant.All)
+	a.privileged("POST", "/system/tenant", tenant.Create)
+	a.privileged("PUT", "/system/tenant/:id", tenant.Update)
+	a.privileged("DELETE", "/system/tenant/:id", tenant.Delete)
 
-		dict := system.NewDictHandler(db)
-		authed.GET("/system/dict", middleware.RequirePerm(db, "system:dict:list"), dict.List)
-		authed.POST("/system/dict", middleware.RequirePerm(db, "system:dict:create"), dict.Create)
-		authed.PUT("/system/dict/:id", middleware.RequirePerm(db, "system:dict:update"), dict.Update)
-		authed.DELETE("/system/dict/:id", middleware.RequirePerm(db, "system:dict:delete"), dict.Delete)
-		authed.POST("/system/dict/item", middleware.RequirePerm(db, "system:dict:update"), dict.CreateItem)
-		authed.PUT("/system/dict/item/:id", middleware.RequirePerm(db, "system:dict:update"), dict.UpdateItem)
-		authed.DELETE("/system/dict/item/:id", middleware.RequirePerm(db, "system:dict:update"), dict.DeleteItem)
-		// Dropdown source for any authenticated user; no button perm needed.
-		authed.GET("/system/dict/items/:type", dict.Items)
+	logs := system.NewLogHandler(db)
+	a.perm("GET", "/system/log/oper", "system:log:oper", logs.OperList)
+	a.perm("GET", "/system/log/login", "system:log:login", logs.LoginList)
 
-		customer := crm.NewCustomerHandler(db)
-		authed.GET("/crm/customer", middleware.RequirePerm(db, "crm:customer:list"), customer.List)
-		authed.GET("/crm/customer/all", middleware.RequirePerm(db, "crm:customer:list"), customer.All)
-		authed.POST("/crm/customer", middleware.RequirePerm(db, "crm:customer:create"), customer.Create)
-		authed.PUT("/crm/customer/:id", middleware.RequirePerm(db, "crm:customer:update"), customer.Update)
-		authed.DELETE("/crm/customer/:id", middleware.RequirePerm(db, "crm:customer:delete"), customer.Delete)
+	dict := system.NewDictHandler(db)
+	a.perm("GET", "/system/dict", "system:dict:list", dict.List)
+	a.perm("POST", "/system/dict", "system:dict:create", dict.Create)
+	a.perm("PUT", "/system/dict/:id", "system:dict:update", dict.Update)
+	a.perm("DELETE", "/system/dict/:id", "system:dict:delete", dict.Delete)
+	a.perm("POST", "/system/dict/item", "system:dict:update", dict.CreateItem)
+	a.perm("PUT", "/system/dict/item/:id", "system:dict:update", dict.UpdateItem)
+	a.perm("DELETE", "/system/dict/item/:id", "system:dict:update", dict.DeleteItem)
+	// Dropdown source for any authenticated user; no button perm needed.
+	a.open("GET", "/system/dict/items/:type", dict.Items)
 
-		contact := crm.NewContactHandler(db)
-		authed.GET("/crm/contact", middleware.RequirePerm(db, "crm:contact:list"), contact.List)
-		authed.POST("/crm/contact", middleware.RequirePerm(db, "crm:contact:create"), contact.Create)
-		authed.PUT("/crm/contact/:id", middleware.RequirePerm(db, "crm:contact:update"), contact.Update)
-		authed.DELETE("/crm/contact/:id", middleware.RequirePerm(db, "crm:contact:delete"), contact.Delete)
+	api := system.NewApiHandler(db, &registry)
+	a.perm("GET", "/system/api", "system:api:list", api.List)
+	a.perm("GET", "/system/api/all", "system:api:list", api.All)
+	a.perm("PUT", "/system/api/:id", "system:api:update", api.UpdateTitle)
+	a.perm("POST", "/system/api/sync", "system:api:update", api.Sync)
 
-		follow := crm.NewFollowUpHandler(db)
-		authed.GET("/crm/follow", middleware.RequirePerm(db, "crm:follow:list"), follow.List)
-		authed.POST("/crm/follow", middleware.RequirePerm(db, "crm:follow:create"), follow.Create)
-		authed.PUT("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:update"), follow.Update)
-		authed.DELETE("/crm/follow/:id", middleware.RequirePerm(db, "crm:follow:delete"), follow.Delete)
+	customer := crm.NewCustomerHandler(db)
+	a.perm("GET", "/crm/customer", "crm:customer:list", customer.List)
+	a.perm("GET", "/crm/customer/all", "crm:customer:list", customer.All)
+	a.perm("POST", "/crm/customer", "crm:customer:create", customer.Create)
+	a.perm("PUT", "/crm/customer/:id", "crm:customer:update", customer.Update)
+	a.perm("DELETE", "/crm/customer/:id", "crm:customer:delete", customer.Delete)
 
-		opp := crm.NewOpportunityHandler(db)
-		authed.GET("/crm/opportunity", middleware.RequirePerm(db, "crm:opportunity:list"), opp.List)
-		authed.GET("/crm/opportunity/all", middleware.RequirePerm(db, "crm:opportunity:list"), opp.All)
-		authed.POST("/crm/opportunity", middleware.RequirePerm(db, "crm:opportunity:create"), opp.Create)
-		authed.PUT("/crm/opportunity/:id", middleware.RequirePerm(db, "crm:opportunity:update"), opp.Update)
-		authed.DELETE("/crm/opportunity/:id", middleware.RequirePerm(db, "crm:opportunity:delete"), opp.Delete)
+	contact := crm.NewContactHandler(db)
+	a.perm("GET", "/crm/contact", "crm:contact:list", contact.List)
+	a.perm("POST", "/crm/contact", "crm:contact:create", contact.Create)
+	a.perm("PUT", "/crm/contact/:id", "crm:contact:update", contact.Update)
+	a.perm("DELETE", "/crm/contact/:id", "crm:contact:delete", contact.Delete)
 
-		contract := crm.NewContractHandler(db)
-		authed.GET("/crm/contract", middleware.RequirePerm(db, "crm:contract:list"), contract.List)
-		authed.POST("/crm/contract", middleware.RequirePerm(db, "crm:contract:create"), contract.Create)
-		authed.PUT("/crm/contract/:id", middleware.RequirePerm(db, "crm:contract:update"), contract.Update)
-		authed.DELETE("/crm/contract/:id", middleware.RequirePerm(db, "crm:contract:delete"), contract.Delete)
+	follow := crm.NewFollowUpHandler(db)
+	a.perm("GET", "/crm/follow", "crm:follow:list", follow.List)
+	a.perm("POST", "/crm/follow", "crm:follow:create", follow.Create)
+	a.perm("PUT", "/crm/follow/:id", "crm:follow:update", follow.Update)
+	a.perm("DELETE", "/crm/follow/:id", "crm:follow:delete", follow.Delete)
 
-		dashboard := crm.NewDashboardHandler(db)
-		authed.GET("/dashboard/summary", dashboard.Summary)
-	}
+	opp := crm.NewOpportunityHandler(db)
+	a.perm("GET", "/crm/opportunity", "crm:opportunity:list", opp.List)
+	a.perm("GET", "/crm/opportunity/all", "crm:opportunity:list", opp.All)
+	a.perm("POST", "/crm/opportunity", "crm:opportunity:create", opp.Create)
+	a.perm("PUT", "/crm/opportunity/:id", "crm:opportunity:update", opp.Update)
+	a.perm("DELETE", "/crm/opportunity/:id", "crm:opportunity:delete", opp.Delete)
 
-	return r
+	contract := crm.NewContractHandler(db)
+	a.perm("GET", "/crm/contract", "crm:contract:list", contract.List)
+	a.perm("POST", "/crm/contract", "crm:contract:create", contract.Create)
+	a.perm("PUT", "/crm/contract/:id", "crm:contract:update", contract.Update)
+	a.perm("DELETE", "/crm/contract/:id", "crm:contract:delete", contract.Delete)
+
+	dashboard := crm.NewDashboardHandler(db)
+	a.open("GET", "/dashboard/summary", dashboard.Summary)
+
+	return r, registry
 }

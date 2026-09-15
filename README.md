@@ -3,7 +3,7 @@
 Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为客户、联系人、商机、合同及跟进记录等业务模块提供统一、可扩展的工程底座。
 
 > 技术选型与架构设计已定，详见 [docs/solution.md](docs/solution.md)；部署方式见 [docs/deployment.md](docs/deployment.md)。
-> M1~M4 全部里程碑已完成，端到端冒烟测试 51 项断言全部通过。
+> M1~M6 全部里程碑已完成，端到端冒烟测试 51 项断言全部通过（可重复执行）。
 
 ## 项目目标
 
@@ -47,6 +47,26 @@ Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为�
 | M2 客户域 | ✅ 已完成 | 客户、联系人、跟进记录 CRUD 与数据权限 |
 | M3 销售域 | ✅ 已完成 | 商机、合同、工作台数据汇总 |
 | M4 打磨 | ✅ 已完成 | 字典管理、审计日志、CI、Docker 生产部署与部署文档 |
+| M5 治理能力 | ✅ 已完成 | 菜单管理 CRUD、Swagger 接口文档、API 接口管理（自动采集） |
+| M6 动态菜单 | ✅ 已完成 | 侧边栏与路由按后端菜单树动态生成，菜单管理闭环 |
+
+### M6 动态菜单明细
+
+| 能力 | 说明 |
+| --- | --- |
+| 菜单树下发 | `GET /auth/profile` 增加 `menus`：按角色授权返回启用中的目录+菜单树（superAdmin 全量，隐藏菜单也下发供路由注册） |
+| 动态路由 | `import.meta.glob` 组件映射 + `router.addRoute` 按菜单树注册；登出时清理；component 填错显示「页面未实现」占位 |
+| 动态侧边栏 | 递归组件渲染菜单树，硬编码菜单项全部移除；隐藏菜单不进侧边栏但可直达，停用即不可访问 |
+| 设计文档 | [docs/dynamic-menu.md](docs/dynamic-menu.md) |
+
+### M5 治理能力明细
+
+| 能力 | 说明 |
+| --- | --- |
+| 菜单管理 | 目录/菜单/按钮三级 CRUD：类型字段约束、perms 唯一、防成环、有子级或被角色引用禁止删除；前端树形表格页 `system/menu`；设计见 [docs/menu-management.md](docs/menu-management.md) |
+| Swagger 接口文档 | 接入 swaggo：58 个接口全部注解，`/swagger/index.html` 在线浏览调试；`app.env=prod` 时自动关闭；生成物在 `backend/internal/apidocs/`；规范见 [docs/api-docs-swagger.md](docs/api-docs-swagger.md) |
+| API 接口管理 | `sys_api` 注册表：启动时自动从路由注册处采集 method/path/handler/perms 幂等同步（代码即事实源）；页面可检索、维护接口名称、手动同步；迁移脚本 `000004_sys_api`；设计见 [docs/api-management.md](docs/api-management.md) |
+| 字典删除修复 | 字典/字典项改为硬删除（与部门同一唯一索引原因），冒烟测试可重复执行；`cmd/purge` 一次性清理历史软删除残留 |
 
 ### M1.5 平台化改造明细
 
@@ -140,6 +160,10 @@ cd backend
 go test ./...
 go build ./...
 
+# 重新生成 Swagger 接口文档（修改注解后执行）
+cd backend
+go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g cmd/server/main.go -o internal/apidocs --parseInternal
+
 # 前端
 cd frontend
 pnpm build
@@ -185,6 +209,10 @@ pwsh scripts/smoke-test.ps1
 - [x] 商机、合同模块（M3）
 - [x] 接入代码检查、自动化测试和持续集成
 - [x] 补充架构设计、接口规范和部署文档
+- [x] 菜单管理 CRUD（目录/菜单/按钮三级，M5）
+- [x] Swagger 接口文档（swaggo 注解 + 在线调试，M5）
+- [x] API 接口管理（sys_api 自动采集与接口清单页，M5）
+- [x] 动态菜单与动态路由（侧边栏/路由按后端菜单树生成，M6，见 [docs/dynamic-menu.md](docs/dynamic-menu.md)）
 
 ## 贡献
 

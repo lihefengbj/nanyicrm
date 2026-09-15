@@ -41,6 +41,7 @@ export interface UserInfo {
   dept?: Dept
   roles: string[]
   perms: string[]
+  menus: Menu[]
   isAdmin: boolean
 }
 
@@ -128,6 +129,31 @@ export interface Menu {
   visible: number
   status: number
   children?: Menu[]
+}
+
+export interface MenuSavePayload {
+  parentId: number
+  title: string
+  type: number
+  path: string
+  component: string
+  perms: string
+  icon: string
+  sort: number
+  visible: number
+  status: number
+}
+
+export interface ApiInfo {
+  id: number
+  method: string
+  path: string
+  handler: string
+  title: string
+  module: string
+  perms: string
+  status: number
+  updatedAt: string
 }
 
 export interface Dept {

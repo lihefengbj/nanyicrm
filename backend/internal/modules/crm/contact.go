@@ -20,6 +20,12 @@ func NewContactHandler(db *gorm.DB) *ContactHandler {
 	return &ContactHandler{db: db}
 }
 
+// @Summary  联系人分页列表
+// @Tags     CRM-联系人
+// @Description 需要权限：crm:contact:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contact [get]
 func (h *ContactHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	name := strings.TrimSpace(c.Query("name"))
@@ -63,6 +69,12 @@ func (h *ContactHandler) checkCustomer(c *gin.Context, customerID uint64) (*mode
 	return findCustomerInTenant(c, h.db, customerID)
 }
 
+// @Summary  新增联系人
+// @Tags     CRM-联系人
+// @Description 需要权限：crm:contact:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contact [post]
 func (h *ContactHandler) Create(c *gin.Context) {
 	var req ContactSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -102,6 +114,12 @@ func (h *ContactHandler) findInTenant(c *gin.Context, id uint64) (*model.CrmCont
 	return &contact, true
 }
 
+// @Summary  编辑联系人
+// @Tags     CRM-联系人
+// @Description 需要权限：crm:contact:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contact/{id} [put]
 func (h *ContactHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -134,6 +152,12 @@ func (h *ContactHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除联系人
+// @Tags     CRM-联系人
+// @Description 需要权限：crm:contact:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/contact/{id} [delete]
 func (h *ContactHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

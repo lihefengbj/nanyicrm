@@ -11,11 +11,16 @@ import (
 )
 
 type Config struct {
+	App    AppConfig     `yaml:"app"`
 	Server ServerConfig  `yaml:"server"`
 	MySQL  []MySQLConfig `yaml:"mysql"`
 	Redis  RedisConfig   `yaml:"redis"`
 	JWT    JWTConfig     `yaml:"jwt"`
 	Log    LogConfig     `yaml:"log"`
+}
+
+type AppConfig struct {
+	Env string `yaml:"env"` // dev / test / prod; swagger UI is disabled in prod
 }
 
 type ServerConfig struct {
@@ -82,6 +87,9 @@ func defaults() *Config {
 }
 
 func (c *Config) applyDefaults() {
+	if c.App.Env == "" {
+		c.App.Env = "dev"
+	}
 	if c.Server.Port == "" {
 		c.Server.Port = "8080"
 	}

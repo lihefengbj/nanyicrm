@@ -1,0 +1,955 @@
+basePath: /api/v1
+definitions:
+  common.TokenPair:
+    properties:
+      accessToken:
+        type: string
+      expiresIn:
+        description: access token TTL in seconds
+        type: integer
+      refreshToken:
+        type: string
+    type: object
+  system.ApiUpdateTitleRequest:
+    properties:
+      title:
+        maxLength: 64
+        type: string
+    type: object
+  system.LoginRequest:
+    properties:
+      pwd:
+        type: string
+      username:
+        type: string
+    required:
+    - pwd
+    - username
+    type: object
+  system.RefreshRequest:
+    properties:
+      refreshToken:
+        type: string
+    required:
+    - refreshToken
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Nanyi CRM 管理后台接口文档。统一前缀 /api/v1，响应结构 { code, message, data }，分页结构 {
+    records, total, pageNum, pageSize }。异常码段：1xxx 参数 / 2xxx 认证授权 / 3xxx 业务 / 5xxx
+    系统。
+  title: Nanyi CRM API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      parameters:
+      - description: 登录请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/system.LoginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.TokenPair'
+      summary: 登录，颁发 access/refresh token
+      tags:
+      - 认证
+  /auth/logout:
+    post:
+      parameters:
+      - description: 要吊销的 refresh token
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/system.RefreshRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 吊销 refresh token
+      tags:
+      - 认证
+  /auth/profile:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 当前用户信息（含角色与权限标识）
+      tags:
+      - 认证
+  /auth/refresh:
+    post:
+      parameters:
+      - description: 刷新请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/system.RefreshRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.TokenPair'
+      summary: 用 refresh token 轮换新的 token 对
+      tags:
+      - 认证
+  /crm/contact:
+    get:
+      description: 需要权限：crm:contact:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 联系人分页列表
+      tags:
+      - CRM-联系人
+    post:
+      description: 需要权限：crm:contact:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增联系人
+      tags:
+      - CRM-联系人
+  /crm/contact/{id}:
+    delete:
+      description: 需要权限：crm:contact:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除联系人
+      tags:
+      - CRM-联系人
+    put:
+      description: 需要权限：crm:contact:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑联系人
+      tags:
+      - CRM-联系人
+  /crm/contract:
+    get:
+      description: 需要权限：crm:contract:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 合同分页列表
+      tags:
+      - CRM-合同
+    post:
+      description: 需要权限：crm:contract:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增合同（关联商机自动赢单）
+      tags:
+      - CRM-合同
+  /crm/contract/{id}:
+    delete:
+      description: 需要权限：crm:contract:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除合同
+      tags:
+      - CRM-合同
+    put:
+      description: 需要权限：crm:contract:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑合同
+      tags:
+      - CRM-合同
+  /crm/customer:
+    get:
+      description: 需要权限：crm:customer:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 客户分页列表
+      tags:
+      - CRM-客户
+    post:
+      description: 需要权限：crm:customer:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增客户
+      tags:
+      - CRM-客户
+  /crm/customer/{id}:
+    delete:
+      description: 需要权限：crm:customer:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除客户（级联联系人与跟进）
+      tags:
+      - CRM-客户
+    put:
+      description: 需要权限：crm:customer:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑客户
+      tags:
+      - CRM-客户
+  /crm/customer/all:
+    get:
+      description: 需要权限：crm:customer:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 全部客户（下拉用）
+      tags:
+      - CRM-客户
+  /crm/follow:
+    get:
+      description: 需要权限：crm:follow:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 跟进记录分页列表
+      tags:
+      - CRM-跟进
+    post:
+      description: 需要权限：crm:follow:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增跟进记录
+      tags:
+      - CRM-跟进
+  /crm/follow/{id}:
+    delete:
+      description: 需要权限：crm:follow:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除跟进记录（仅本人）
+      tags:
+      - CRM-跟进
+    put:
+      description: 需要权限：crm:follow:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑跟进记录（仅本人）
+      tags:
+      - CRM-跟进
+  /crm/opportunity:
+    get:
+      description: 需要权限：crm:opportunity:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 商机分页列表
+      tags:
+      - CRM-商机
+    post:
+      description: 需要权限：crm:opportunity:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增商机
+      tags:
+      - CRM-商机
+  /crm/opportunity/{id}:
+    delete:
+      description: 需要权限：crm:opportunity:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除商机
+      tags:
+      - CRM-商机
+    put:
+      description: 需要权限：crm:opportunity:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑商机
+      tags:
+      - CRM-商机
+  /crm/opportunity/all:
+    get:
+      description: 需要权限：crm:opportunity:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 全部商机（下拉用）
+      tags:
+      - CRM-商机
+  /dashboard/summary:
+    get:
+      description: 需要权限：登录即可
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 工作台汇总指标
+      tags:
+      - 工作台
+  /system/api:
+    get:
+      description: 需要权限：system:api:list
+      parameters:
+      - description: HTTP 方法
+        in: query
+        name: method
+        type: string
+      - description: 路径模糊
+        in: query
+        name: path
+        type: string
+      - description: 所属模块
+        in: query
+        name: module
+        type: string
+      - description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 接口分页列表
+      tags:
+      - 系统管理-接口
+  /system/api/{id}:
+    put:
+      description: 需要权限：system:api:update
+      parameters:
+      - description: 主键
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 请求体
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/system.ApiUpdateTitleRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑接口名称（其余字段由代码同步，只读）
+      tags:
+      - 系统管理-接口
+  /system/api/all:
+    get:
+      description: 需要权限：system:api:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 全部接口（分组展示用）
+      tags:
+      - 系统管理-接口
+  /system/api/sync:
+    post:
+      description: 需要权限：system:api:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 手动触发一次接口同步（常规由启动时自动完成）
+      tags:
+      - 系统管理-接口
+  /system/dept:
+    post:
+      description: 需要权限：system:dept:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增部门
+      tags:
+      - 系统管理-部门
+  /system/dept/{id}:
+    delete:
+      description: 需要权限：system:dept:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除部门
+      tags:
+      - 系统管理-部门
+    put:
+      description: 需要权限：system:dept:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑部门
+      tags:
+      - 系统管理-部门
+  /system/dept/tree:
+    get:
+      description: 需要权限：system:dept:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 部门树
+      tags:
+      - 系统管理-部门
+  /system/dict:
+    get:
+      description: 需要权限：system:dict:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 字典分页列表
+      tags:
+      - 系统管理-字典
+    post:
+      description: 需要权限：system:dict:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增字典
+      tags:
+      - 系统管理-字典
+  /system/dict/{id}:
+    delete:
+      description: 需要权限：system:dict:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除字典
+      tags:
+      - 系统管理-字典
+    put:
+      description: 需要权限：system:dict:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑字典
+      tags:
+      - 系统管理-字典
+  /system/dict/item:
+    post:
+      description: 需要权限：system:dict:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增字典项
+      tags:
+      - 系统管理-字典
+  /system/dict/item/{id}:
+    delete:
+      description: 需要权限：system:dict:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除字典项
+      tags:
+      - 系统管理-字典
+    put:
+      description: 需要权限：system:dict:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑字典项
+      tags:
+      - 系统管理-字典
+  /system/dict/items/{type}:
+    get:
+      description: 需要权限：登录即可
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 按类型取字典项（下拉框用）
+      tags:
+      - 系统管理-字典
+  /system/log/login:
+    get:
+      description: 需要权限：system:log:login
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 登录日志分页列表
+      tags:
+      - 系统管理-日志
+  /system/log/oper:
+    get:
+      description: 需要权限：system:log:oper
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 操作日志分页列表
+      tags:
+      - 系统管理-日志
+  /system/menu:
+    post:
+      description: 需要权限：system:menu:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增菜单
+      tags:
+      - 系统管理-菜单
+  /system/menu/{id}:
+    delete:
+      description: 需要权限：system:menu:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除菜单
+      tags:
+      - 系统管理-菜单
+    put:
+      description: 需要权限：system:menu:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑菜单
+      tags:
+      - 系统管理-菜单
+  /system/menu/tree:
+    get:
+      description: 需要权限：system:menu:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 菜单树（角色授权/菜单管理）
+      tags:
+      - 系统管理-菜单
+  /system/role:
+    get:
+      description: 需要权限：system:role:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 角色分页列表
+      tags:
+      - 系统管理-角色
+    post:
+      description: 需要权限：system:role:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增角色
+      tags:
+      - 系统管理-角色
+  /system/role/{id}:
+    delete:
+      description: 需要权限：system:role:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除角色
+      tags:
+      - 系统管理-角色
+    put:
+      description: 需要权限：system:role:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑角色（含菜单授权）
+      tags:
+      - 系统管理-角色
+  /system/role/all:
+    get:
+      description: 需要权限：system:role:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 全部角色（下拉用）
+      tags:
+      - 系统管理-角色
+  /system/tenant:
+    get:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 租户分页列表
+      tags:
+      - 系统管理-租户
+    post:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增租户
+      tags:
+      - 系统管理-租户
+  /system/tenant/{id}:
+    delete:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除租户
+      tags:
+      - 系统管理-租户
+    put:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑租户
+      tags:
+      - 系统管理-租户
+  /system/tenant/all:
+    get:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 全部租户（下拉用）
+      tags:
+      - 系统管理-租户
+  /system/user:
+    get:
+      description: 需要权限：system:user:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 用户分页列表
+      tags:
+      - 系统管理-用户
+    post:
+      description: 需要权限：system:user:create
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增用户
+      tags:
+      - 系统管理-用户
+  /system/user/{id}:
+    delete:
+      description: 需要权限：system:user:delete
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除用户
+      tags:
+      - 系统管理-用户
+    put:
+      description: 需要权限：system:user:update
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 编辑用户
+      tags:
+      - 系统管理-用户
+securityDefinitions:
+  BearerAuth:
+    description: 输入 "Bearer {access_token}"
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

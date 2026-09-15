@@ -21,6 +21,12 @@ func NewOpportunityHandler(db *gorm.DB) *OpportunityHandler {
 	return &OpportunityHandler{db: db}
 }
 
+// @Summary  商机分页列表
+// @Tags     CRM-商机
+// @Description 需要权限：crm:opportunity:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/opportunity [get]
 func (h *OpportunityHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	name := strings.TrimSpace(c.Query("name"))
@@ -56,6 +62,12 @@ func (h *OpportunityHandler) List(c *gin.Context) {
 }
 
 // All returns open opportunities (stages 1-4) for dropdowns.
+// @Summary  全部商机（下拉用）
+// @Tags     CRM-商机
+// @Description 需要权限：crm:opportunity:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/opportunity/all [get]
 func (h *OpportunityHandler) All(c *gin.Context) {
 	var list []model.CrmOpportunity
 	query := middleware.TenantScope(c, h.db.Model(&model.CrmOpportunity{}), "crm_opportunity")
@@ -106,6 +118,12 @@ func validStage(s int8) int8 {
 	return s
 }
 
+// @Summary  新增商机
+// @Tags     CRM-商机
+// @Description 需要权限：crm:opportunity:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/opportunity [post]
 func (h *OpportunityHandler) Create(c *gin.Context) {
 	var req OpportunitySaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -149,6 +167,12 @@ func (h *OpportunityHandler) findInTenant(c *gin.Context, id uint64) (*model.Crm
 	return &opp, true
 }
 
+// @Summary  编辑商机
+// @Tags     CRM-商机
+// @Description 需要权限：crm:opportunity:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/opportunity/{id} [put]
 func (h *OpportunityHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -185,6 +209,12 @@ func (h *OpportunityHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除商机
+// @Tags     CRM-商机
+// @Description 需要权限：crm:opportunity:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/opportunity/{id} [delete]
 func (h *OpportunityHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

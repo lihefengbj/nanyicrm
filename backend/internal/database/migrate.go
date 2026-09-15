@@ -24,6 +24,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SysDictItem{},
 		&model.SysOperLog{},
 		&model.SysLoginLog{},
+		&model.SysApi{},
 		&model.CrmCustomer{},
 		&model.CrmContact{},
 		&model.CrmFollowUp{},

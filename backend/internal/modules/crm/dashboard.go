@@ -27,6 +27,12 @@ type stageStat struct {
 	Total float64 `json:"total"`
 }
 
+// @Summary  工作台汇总指标
+// @Tags     工作台
+// @Description 需要权限：登录即可
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /dashboard/summary [get]
 func (h *DashboardHandler) Summary(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
 	scoped := func(m interface{}, table string) *gorm.DB {

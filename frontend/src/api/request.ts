@@ -1,4 +1,4 @@
-import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import type { ApiResponse, TokenPair } from '@/types/api'
@@ -9,6 +9,10 @@ const request = axios.create({
 })
 
 let refreshing: Promise<boolean> | null = null
+
+// Business codes that mean "not authenticated": backend returns them with
+// HTTP 200, so the axios error branch (which expects 401) never fires.
+const AUTH_CODES = new Set([2001, 2002])
 
 async function tryRefresh(): Promise<boolean> {
   const store = useUserStore()
@@ -27,6 +31,26 @@ async function tryRefresh(): Promise<boolean> {
   return false
 }
 
+async function handleAuthFailure(
+  config: AxiosRequestConfig & { _retried?: boolean },
+): Promise<AxiosResponse> {
+  if (!config._retried && !config.url?.includes('/auth/')) {
+    config._retried = true
+    refreshing = refreshing ?? tryRefresh()
+    const ok = await refreshing
+    refreshing = null
+    if (ok) {
+      return request(config)
+    }
+  }
+  const store = useUserStore()
+  store.logout()
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login'
+  }
+  return Promise.reject(new AxiosError('登录已过期'))
+}
+
 request.interceptors.request.use((config) => {
   const store = useUserStore()
   if (store.accessToken) {
@@ -41,25 +65,17 @@ request.interceptors.response.use(
     if (body.code === 0) {
       return response
     }
+    if (AUTH_CODES.has(body.code)) {
+      return handleAuthFailure(response.config as AxiosRequestConfig & { _retried?: boolean })
+    }
     ElMessage.error(body.message || '请求失败')
     return Promise.reject(new Error(body.message))
   },
   async (error: AxiosError<ApiResponse>) => {
-    const status = error.response?.status
     const config = error.config as AxiosRequestConfig & { _retried?: boolean }
 
-    if (status === 401 && config && !config._retried && !config.url?.includes('/auth/')) {
-      config._retried = true
-      refreshing = refreshing ?? tryRefresh()
-      const ok = await refreshing
-      refreshing = null
-      if (ok) {
-        return request(config)
-      }
-      const store = useUserStore()
-      store.logout()
-      window.location.href = '/login'
-      return Promise.reject(error)
+    if (config && error.response?.status === 401) {
+      return handleAuthFailure(config)
     }
 
     const msg = error.response?.data?.message || error.message || '网络异常'

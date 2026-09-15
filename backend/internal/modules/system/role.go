@@ -21,6 +21,12 @@ func NewRoleHandler(db *gorm.DB) *RoleHandler {
 	return &RoleHandler{db: db}
 }
 
+// @Summary  角色分页列表
+// @Tags     系统管理-角色
+// @Description 需要权限：system:role:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/role [get]
 func (h *RoleHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	name := strings.TrimSpace(c.Query("name"))
@@ -45,6 +51,12 @@ func (h *RoleHandler) List(c *gin.Context) {
 }
 
 // All returns every enabled role, used by the user form's role selector.
+// @Summary  全部角色（下拉用）
+// @Tags     系统管理-角色
+// @Description 需要权限：system:role:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/role/all [get]
 func (h *RoleHandler) All(c *gin.Context) {
 	var roles []model.SysRole
 	if err := h.db.Where("status = 1").Order("sort, id").Find(&roles).Error; err != nil {
@@ -63,6 +75,12 @@ type RoleSaveRequest struct {
 	MenuIDs []uint64 `json:"menuIds"`
 }
 
+// @Summary  新增角色
+// @Tags     系统管理-角色
+// @Description 需要权限：system:role:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/role [post]
 func (h *RoleHandler) Create(c *gin.Context) {
 	var req RoleSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -92,6 +110,12 @@ func (h *RoleHandler) Create(c *gin.Context) {
 	common.OK(c, gin.H{"id": role.ID})
 }
 
+// @Summary  编辑角色（含菜单授权）
+// @Tags     系统管理-角色
+// @Description 需要权限：system:role:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/role/{id} [put]
 func (h *RoleHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -140,6 +164,12 @@ func (h *RoleHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除角色
+// @Tags     系统管理-角色
+// @Description 需要权限：system:role:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/role/{id} [delete]
 func (h *RoleHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

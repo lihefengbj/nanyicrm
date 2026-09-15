@@ -20,6 +20,12 @@ func NewCustomerHandler(db *gorm.DB) *CustomerHandler {
 	return &CustomerHandler{db: db}
 }
 
+// @Summary  客户分页列表
+// @Tags     CRM-客户
+// @Description 需要权限：crm:customer:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer [get]
 func (h *CustomerHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	name := strings.TrimSpace(c.Query("name"))
@@ -62,6 +68,12 @@ func (h *CustomerHandler) List(c *gin.Context) {
 }
 
 // All returns the tenant's customers for dropdowns (id + name only).
+// @Summary  全部客户（下拉用）
+// @Tags     CRM-客户
+// @Description 需要权限：crm:customer:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/all [get]
 func (h *CustomerHandler) All(c *gin.Context) {
 	var customers []model.CrmCustomer
 	query := middleware.TenantScope(c, h.db.Model(&model.CrmCustomer{}), "crm_customer")
@@ -104,6 +116,12 @@ func (h *CustomerHandler) resolveOwner(c *gin.Context, req *CustomerSaveRequest)
 	return ownerID, true
 }
 
+// @Summary  新增客户
+// @Tags     CRM-客户
+// @Description 需要权限：crm:customer:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer [post]
 func (h *CustomerHandler) Create(c *gin.Context) {
 	var req CustomerSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -150,6 +168,12 @@ func findCustomerInTenant(c *gin.Context, db *gorm.DB, id uint64) (*model.CrmCus
 	return &customer, true
 }
 
+// @Summary  编辑客户
+// @Tags     CRM-客户
+// @Description 需要权限：crm:customer:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/{id} [put]
 func (h *CustomerHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -187,6 +211,12 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除客户（级联联系人与跟进）
+// @Tags     CRM-客户
+// @Description 需要权限：crm:customer:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/{id} [delete]
 func (h *CustomerHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

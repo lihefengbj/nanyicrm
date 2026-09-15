@@ -35,6 +35,12 @@ func (h *LogHandler) scope(c *gin.Context, model interface{}, table string) *gor
 	return query
 }
 
+// @Summary  操作日志分页列表
+// @Tags     系统管理-日志
+// @Description 需要权限：system:log:oper
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/log/oper [get]
 func (h *LogHandler) OperList(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	query := h.scope(c, &model.SysOperLog{}, "sys_oper_log")
@@ -51,6 +57,12 @@ func (h *LogHandler) OperList(c *gin.Context) {
 	common.OKPage(c, logs, total, page.PageNum, page.PageSize)
 }
 
+// @Summary  登录日志分页列表
+// @Tags     系统管理-日志
+// @Description 需要权限：system:log:login
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/log/login [get]
 func (h *LogHandler) LoginList(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	query := h.scope(c, &model.SysLoginLog{}, "sys_login_log")

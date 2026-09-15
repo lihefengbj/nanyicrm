@@ -1,5 +1,6 @@
 import { del, get, post, put } from './request'
 import type {
+  ApiInfo,
   Dict,
   DictItem,
   DictItemSavePayload,
@@ -8,6 +9,7 @@ import type {
   DeptSavePayload,
   LoginLog,
   Menu,
+  MenuSavePayload,
   OperLog,
   PageQuery,
   PageResult,
@@ -18,6 +20,17 @@ import type {
   User,
   UserSavePayload,
 } from '@/types/api'
+
+// ---- api registry ----
+export function listApis(query: PageQuery & { method?: string; path?: string; module?: string }) {
+  return get<PageResult<ApiInfo>>('/system/api', { ...query })
+}
+export function updateApiTitle(id: number, title: string) {
+  return put<void>(`/system/api/${id}`, { title })
+}
+export function syncApis() {
+  return post<void>('/system/api/sync')
+}
 
 // ---- user ----
 export function listUsers(query: PageQuery & { username?: string; status?: string; tenantId?: number }) {
@@ -51,8 +64,17 @@ export function deleteRole(id: number) {
 }
 
 // ---- menu ----
-export function menuTree() {
-  return get<Menu[]>('/system/menu/tree')
+export function menuTree(query?: { title?: string; status?: string }) {
+  return get<Menu[]>('/system/menu/tree', query ? { ...query } : {})
+}
+export function createMenu(data: MenuSavePayload) {
+  return post<{ id: number }>('/system/menu', data)
+}
+export function updateMenu(id: number, data: MenuSavePayload) {
+  return put<void>(`/system/menu/${id}`, data)
+}
+export function deleteMenu(id: number) {
+  return del<void>(`/system/menu/${id}`)
 }
 
 // ---- dept ----

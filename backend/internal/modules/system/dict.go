@@ -20,6 +20,12 @@ func NewDictHandler(db *gorm.DB) *DictHandler {
 	return &DictHandler{db: db}
 }
 
+// @Summary  字典分页列表
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:list
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict [get]
 func (h *DictHandler) List(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	keyword := strings.TrimSpace(c.Query("keyword"))
@@ -48,6 +54,12 @@ func (h *DictHandler) List(c *gin.Context) {
 // Items returns enabled items of one dict type for dropdowns. Available to
 // any authenticated user (no button perm), still tenant scoped with
 // platform-level (tenant 0) dictionaries shared to everyone.
+// @Summary  按类型取字典项（下拉框用）
+// @Tags     系统管理-字典
+// @Description 需要权限：登录即可
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/items/{type} [get]
 func (h *DictHandler) Items(c *gin.Context) {
 	dictType := strings.TrimSpace(c.Param("type"))
 	if dictType == "" {
@@ -79,6 +91,12 @@ type DictSaveRequest struct {
 	Remark string `json:"remark" binding:"max=255"`
 }
 
+// @Summary  新增字典
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:create
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict [post]
 func (h *DictHandler) Create(c *gin.Context) {
 	var req DictSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -116,6 +134,12 @@ func (h *DictHandler) findInTenant(c *gin.Context, id uint64) (*model.SysDict, b
 	return &dict, true
 }
 
+// @Summary  编辑字典
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/{id} [put]
 func (h *DictHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -150,6 +174,12 @@ func (h *DictHandler) Update(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除字典
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:delete
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/{id} [delete]
 func (h *DictHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -161,10 +191,13 @@ func (h *DictHandler) Delete(c *gin.Context) {
 		return
 	}
 	err = h.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("dict_id = ?", dict.ID).Delete(&model.SysDictItem{}).Error; err != nil {
+		// Hard delete for the same unique-index reason as dept: the
+		// (tenant_id, type) unique index would otherwise be held by the
+		// soft-deleted row and block re-creating the same dict type.
+		if err := tx.Unscoped().Where("dict_id = ?", dict.ID).Delete(&model.SysDictItem{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(dict).Error
+		return tx.Unscoped().Delete(dict).Error
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -183,6 +216,12 @@ type DictItemSaveRequest struct {
 	Status int8   `json:"status"`
 }
 
+// @Summary  新增字典项
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/item [post]
 func (h *DictHandler) CreateItem(c *gin.Context) {
 	var req DictItemSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -215,6 +254,12 @@ func (h *DictHandler) findItemInTenant(c *gin.Context, id uint64) (*model.SysDic
 	return &item, true
 }
 
+// @Summary  编辑字典项
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/item/{id} [put]
 func (h *DictHandler) UpdateItem(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -241,6 +286,12 @@ func (h *DictHandler) UpdateItem(c *gin.Context) {
 	common.OK(c, nil)
 }
 
+// @Summary  删除字典项
+// @Tags     系统管理-字典
+// @Description 需要权限：system:dict:update
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/dict/item/{id} [delete]
 func (h *DictHandler) DeleteItem(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -251,7 +302,8 @@ func (h *DictHandler) DeleteItem(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.db.Delete(item).Error; err != nil {
+	// Hard delete: items are recreated freely, no audit requirement.
+	if err := h.db.Unscoped().Delete(item).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
