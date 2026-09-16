@@ -74,7 +74,7 @@ request.interceptors.response.use(
   async (error: AxiosError<ApiResponse>) => {
     const config = error.config as AxiosRequestConfig & { _retried?: boolean }
 
-    if (config && error.response?.status === 401) {
+    if (config && error.response?.status === 401 && !config.url?.includes('/auth/login')) {
       return handleAuthFailure(config)
     }
 

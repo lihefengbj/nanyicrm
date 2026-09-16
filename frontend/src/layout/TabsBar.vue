@@ -46,7 +46,7 @@ watch(
     tabs.add({
       path: route.path,
       title: (route.meta.title as string) || String(route.name),
-      name: String(route.name),
+      name: String(route.meta.keepAliveName || route.name),
       closable: route.path !== "/dashboard",
     })
   },

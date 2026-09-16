@@ -13,5 +13,9 @@ RUN apk add --no-cache tzdata ca-certificates
 WORKDIR /app
 COPY --from=build /out/server /app/server
 COPY config/config.prod.yaml /app/config/config.yaml
+RUN addgroup -S app && adduser -S app -G app \
+    && mkdir -p /app/log \
+    && chown -R app:app /app
+USER app
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]

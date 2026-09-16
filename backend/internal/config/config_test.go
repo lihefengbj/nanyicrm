@@ -36,3 +36,31 @@ func TestLoadFallsBackToDefaults(t *testing.T) {
 		t.Fatalf("mysql entries = %d, want 1 default", len(cfg.MySQL))
 	}
 }
+
+func TestLoadKeepsZeroLogRetention(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("log:\n  retain_days: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONFIG_PATH", path)
+	if got := Load().Log.RetainDays; got != 0 {
+		t.Fatalf("retain days = %d, want 0", got)
+	}
+}
+
+func TestProductionRequiresStrongSecrets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "app:\n  env: prod\njwt:\n  signing_key: short\nbootstrap:\n  admin_password: short\n  super_admin_password: short\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONFIG_PATH", path)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Load did not reject weak production secrets")
+		}
+	}()
+	Load()
+}

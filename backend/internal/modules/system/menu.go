@@ -87,8 +87,8 @@ type MenuSaveRequest struct {
 	Perms     string `json:"perms" binding:"max=128"`
 	Icon      string `json:"icon" binding:"max=64"`
 	Sort      int    `json:"sort"`
-	Visible   int8   `json:"visible"`
-	Status    int8   `json:"status"`
+	Visible   int8   `json:"visible" binding:"oneof=0 1"`
+	Status    int8   `json:"status" binding:"oneof=0 1"`
 }
 
 // validateMenuRequest checks type-dependent field rules and parent/type
@@ -114,20 +114,20 @@ func (h *MenuHandler) validateMenuRequest(req *MenuSaveRequest, selfID uint64) s
 		if req.Type == 3 {
 			return "按钮必须挂在菜单下"
 		}
-		return ""
-	}
-	if selfID != 0 && req.ParentID == selfID {
-		return "上级菜单不能是自身"
-	}
-	var parent model.SysMenu
-	if err := h.db.First(&parent, req.ParentID).Error; err != nil {
-		return "上级菜单不存在"
-	}
-	if req.Type == 3 && parent.Type != 2 {
-		return "按钮只能挂在菜单下"
-	}
-	if req.Type != 3 && parent.Type != 1 {
-		return "目录和菜单只能挂在目录下"
+	} else {
+		if selfID != 0 && req.ParentID == selfID {
+			return "上级菜单不能是自身"
+		}
+		var parent model.SysMenu
+		if err := h.db.First(&parent, req.ParentID).Error; err != nil {
+			return "上级菜单不存在"
+		}
+		if req.Type == 3 && parent.Type != 2 {
+			return "按钮只能挂在菜单下"
+		}
+		if req.Type != 3 && parent.Type != 1 {
+			return "目录和菜单只能挂在目录下"
+		}
 	}
 	if req.Perms != "" {
 		var count int64
@@ -169,12 +169,6 @@ func (h *MenuHandler) Create(c *gin.Context) {
 		Sort:      req.Sort,
 		Visible:   req.Visible,
 		Status:    req.Status,
-	}
-	if menu.Visible == 0 {
-		menu.Visible = 1
-	}
-	if menu.Status == 0 {
-		menu.Status = 1
 	}
 	if err := h.db.Create(&menu).Error; err != nil {
 		common.Fail(c, common.CodeDBError)

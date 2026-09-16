@@ -149,6 +149,13 @@ async function load(page?: number) {
 }
 
 watch(onlyMine, () => load(1))
+watch(
+  () => route.query.customerId,
+  (value) => {
+    query.customerId = value ? Number(value) : undefined
+    load(1)
+  },
+)
 
 function openDialog(row?: FollowUp) {
   editingId.value = row?.id ?? null

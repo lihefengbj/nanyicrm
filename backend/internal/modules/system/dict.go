@@ -87,7 +87,7 @@ func (h *DictHandler) Items(c *gin.Context) {
 type DictSaveRequest struct {
 	Name   string `json:"name" binding:"required,max=64"`
 	Type   string `json:"type" binding:"required,max=64"`
-	Status int8   `json:"status"`
+	Status int8   `json:"status" binding:"oneof=0 1"`
 	Remark string `json:"remark" binding:"max=255"`
 }
 
@@ -111,9 +111,6 @@ func (h *DictHandler) Create(c *gin.Context) {
 		return
 	}
 	dict := model.SysDict{TenantID: tenantID, Name: req.Name, Type: req.Type, Status: req.Status, Remark: req.Remark}
-	if dict.Status == 0 {
-		dict.Status = 1
-	}
 	if err := h.db.Create(&dict).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
@@ -213,7 +210,7 @@ type DictItemSaveRequest struct {
 	Label  string `json:"label" binding:"required,max=64"`
 	Value  string `json:"value" binding:"required,max=64"`
 	Sort   int    `json:"sort"`
-	Status int8   `json:"status"`
+	Status int8   `json:"status" binding:"oneof=0 1"`
 }
 
 // @Summary  新增字典项
@@ -232,9 +229,6 @@ func (h *DictHandler) CreateItem(c *gin.Context) {
 		return
 	}
 	item := model.SysDictItem{DictID: req.DictID, Label: req.Label, Value: req.Value, Sort: req.Sort, Status: req.Status}
-	if item.Status == 0 {
-		item.Status = 1
-	}
 	if err := h.db.Create(&item).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return

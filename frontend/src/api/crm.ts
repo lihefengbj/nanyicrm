@@ -16,11 +16,11 @@ import type {
 } from '@/types/api'
 
 // ---- customer ----
-export function listCustomers(query: PageQuery & { name?: string; status?: string; level?: string; mine?: string; ownerId?: number }) {
+export function listCustomers(query: PageQuery & { name?: string; status?: string; level?: string; mine?: string; ownerId?: number; tenantId?: number }) {
   return get<PageResult<Customer>>('/crm/customer', { ...query })
 }
-export function listAllCustomers() {
-  return get<Customer[]>('/crm/customer/all')
+export function listAllCustomers(tenantId?: number) {
+  return get<Customer[]>('/crm/customer/all', tenantId ? { tenantId } : {})
 }
 export function createCustomer(data: CustomerSavePayload) {
   return post<{ id: number }>('/crm/customer', data)

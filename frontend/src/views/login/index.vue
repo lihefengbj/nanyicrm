@@ -77,6 +77,7 @@ async function onSubmit() {
     const redirect = (route.query.redirect as string) || "/"
     router.push(redirect)
   } catch {
+    store.logout()
     // error toast handled by interceptor
   } finally {
     loading.value = false

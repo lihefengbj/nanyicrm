@@ -1,15 +1,18 @@
 # nanyicrm backend configuration file.
 # Set CONFIG_PATH env var to point at a different file.
 
-# nanyicrm backend configuration file.
-# Set CONFIG_PATH env var to point at a different file.
-
 app:
   env: dev               # dev / test / prod；prod 时关闭 /swagger 接口文档
 
 server:
   port: "8080"
   mode: debug            # debug / release
+  allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+  trusted_proxies:
+    - "127.0.0.1"
+    - "::1"
 
 # Multiple MySQL connections are supported; "name" identifies each one.
 # The connection named "default" is used for auto-migrate, seed and business data.
@@ -29,8 +32,11 @@ jwt:
   access_ttl: 2h
   refresh_ttl: 168h
 
+bootstrap:
+  admin_password: "admin123"
+  super_admin_password: "superAdmin123"
+
 log:
   dir: log               # log output directory (relative to backend workdir)
   file: server.log       # base name; actual file is server_yyyymmdd.log, rotated daily
   retain_days: 30        # days to keep daily log files, 0 keeps forever
-

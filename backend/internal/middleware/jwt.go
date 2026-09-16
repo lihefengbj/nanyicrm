@@ -36,7 +36,7 @@ func JWTAuth(db *gorm.DB, signingKey string) gin.HandlerFunc {
 			common.Abort(c, common.CodeUnauthorized)
 			return
 		}
-		claims, err := common.ParseToken(signingKey, strings.TrimPrefix(header, "Bearer "))
+		claims, err := common.ParseAccessToken(signingKey, strings.TrimPrefix(header, "Bearer "))
 		if err != nil {
 			if err == common.ErrTokenExpired {
 				common.Abort(c, common.CodeTokenExpired)

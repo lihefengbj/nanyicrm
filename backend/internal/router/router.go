@@ -1,9 +1,11 @@
 package router
 
 import (
+	"context"
 	"reflect"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -45,6 +47,10 @@ func (r *registrar) privileged(method, path string, h gin.HandlerFunc) {
 	r.handle(method, path, "", system.RequirePrivileged(), h)
 }
 
+func (r *registrar) privilegedPerm(method, path, perms string, h gin.HandlerFunc) {
+	r.handle(method, path, perms, system.RequirePrivileged(), middleware.RequirePerm(r.db, perms), h)
+}
+
 func handlerName(h gin.HandlerFunc) string {
 	full := runtime.FuncForPC(reflect.ValueOf(h).Pointer()).Name()
 	if i := strings.LastIndex(full, "/"); i >= 0 {
@@ -63,9 +69,19 @@ func handlerName(h gin.HandlerFunc) string {
 // once the database is ready.
 func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry) {
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS())
+	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		panic("invalid trusted proxies: " + err.Error())
+	}
+	r.Use(gin.Recovery(), middleware.CORS(cfg.Server.AllowedOrigins))
 
 	r.GET("/healthz", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		sqlDB, err := db.DB()
+		if err != nil || sqlDB.PingContext(ctx) != nil || rdb.Ping(ctx).Err() != nil {
+			c.JSON(503, gin.H{"status": "unavailable"})
+			return
+		}
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
@@ -97,17 +113,17 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("DELETE", "/system/user/:id", "system:user:delete", user.Delete)
 
 	role := system.NewRoleHandler(db)
-	a.perm("GET", "/system/role", "system:role:list", role.List)
-	a.perm("GET", "/system/role/all", "system:role:list", role.All)
-	a.perm("POST", "/system/role", "system:role:create", role.Create)
-	a.perm("PUT", "/system/role/:id", "system:role:update", role.Update)
-	a.perm("DELETE", "/system/role/:id", "system:role:delete", role.Delete)
+	a.privilegedPerm("GET", "/system/role", "system:role:list", role.List)
+	a.privilegedPerm("GET", "/system/role/all", "system:role:list", role.All)
+	a.privilegedPerm("POST", "/system/role", "system:role:create", role.Create)
+	a.privilegedPerm("PUT", "/system/role/:id", "system:role:update", role.Update)
+	a.privilegedPerm("DELETE", "/system/role/:id", "system:role:delete", role.Delete)
 
 	menu := system.NewMenuHandler(db)
-	a.perm("GET", "/system/menu/tree", "system:menu:list", menu.Tree)
-	a.perm("POST", "/system/menu", "system:menu:create", menu.Create)
-	a.perm("PUT", "/system/menu/:id", "system:menu:update", menu.Update)
-	a.perm("DELETE", "/system/menu/:id", "system:menu:delete", menu.Delete)
+	a.privilegedPerm("GET", "/system/menu/tree", "system:menu:list", menu.Tree)
+	a.privilegedPerm("POST", "/system/menu", "system:menu:create", menu.Create)
+	a.privilegedPerm("PUT", "/system/menu/:id", "system:menu:update", menu.Update)
+	a.privilegedPerm("DELETE", "/system/menu/:id", "system:menu:delete", menu.Delete)
 
 	dept := system.NewDeptHandler(db)
 	a.perm("GET", "/system/dept/tree", "system:dept:list", dept.Tree)
@@ -138,10 +154,10 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.open("GET", "/system/dict/items/:type", dict.Items)
 
 	api := system.NewApiHandler(db, &registry)
-	a.perm("GET", "/system/api", "system:api:list", api.List)
-	a.perm("GET", "/system/api/all", "system:api:list", api.All)
-	a.perm("PUT", "/system/api/:id", "system:api:update", api.UpdateTitle)
-	a.perm("POST", "/system/api/sync", "system:api:update", api.Sync)
+	a.privilegedPerm("GET", "/system/api", "system:api:list", api.List)
+	a.privilegedPerm("GET", "/system/api/all", "system:api:list", api.All)
+	a.privilegedPerm("PUT", "/system/api/:id", "system:api:update", api.UpdateTitle)
+	a.privilegedPerm("POST", "/system/api/sync", "system:api:update", api.Sync)
 
 	customer := crm.NewCustomerHandler(db)
 	a.perm("GET", "/crm/customer", "crm:customer:list", customer.List)

@@ -86,36 +86,11 @@ func (h *OpportunityHandler) All(c *gin.Context) {
 type OpportunitySaveRequest struct {
 	CustomerID uint64     `json:"customerId" binding:"required"`
 	Name       string     `json:"name" binding:"required,max=128"`
-	Stage      int8       `json:"stage"`
+	Stage      int8       `json:"stage" binding:"oneof=1 2 3 4 5 6"`
 	Amount     float64    `json:"amount" binding:"gte=0"`
 	ExpectDate *time.Time `json:"expectDate"`
 	OwnerID    *uint64    `json:"ownerId"`
 	Remark     string     `json:"remark" binding:"max=255"`
-}
-
-func (h *OpportunityHandler) resolveOwner(c *gin.Context, req *OpportunitySaveRequest) (*uint64, bool) {
-	ownerID := req.OwnerID
-	if ownerID == nil || *ownerID == 0 {
-		uid := middleware.CurrentUserID(c)
-		ownerID = &uid
-	}
-	var owner model.SysUser
-	if err := h.db.Select("id", "tenant_id").First(&owner, *ownerID).Error; err != nil {
-		common.FailMsg(c, common.CodeParamInvalid, "归属人不存在")
-		return nil, false
-	}
-	if !middleware.IsPrivileged(c) && owner.TenantID != middleware.CurrentTenantID(c) {
-		common.FailMsg(c, common.CodeParamInvalid, "归属人不属于当前租户")
-		return nil, false
-	}
-	return ownerID, true
-}
-
-func validStage(s int8) int8 {
-	if s < 1 || s > 6 {
-		return 1
-	}
-	return s
 }
 
 // @Summary  新增商机
@@ -130,18 +105,19 @@ func (h *OpportunityHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if _, ok := findCustomerInTenant(c, h.db, req.CustomerID); !ok {
+	customer, ok := findCustomerInTenant(c, h.db, req.CustomerID)
+	if !ok {
 		return
 	}
-	ownerID, ok := h.resolveOwner(c, &req)
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, customer.TenantID)
 	if !ok {
 		return
 	}
 	opp := model.CrmOpportunity{
-		TenantID:   middleware.CurrentTenantID(c),
+		TenantID:   customer.TenantID,
 		CustomerID: req.CustomerID,
 		Name:       req.Name,
-		Stage:      validStage(req.Stage),
+		Stage:      req.Stage,
 		Amount:     req.Amount,
 		ExpectDate: req.ExpectDate,
 		OwnerID:    ownerID,
@@ -188,16 +164,18 @@ func (h *OpportunityHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if _, ok := findCustomerInTenant(c, h.db, req.CustomerID); !ok {
-		return
-	}
-	ownerID, ok := h.resolveOwner(c, &req)
+	customer, ok := findCustomerInTenant(c, h.db, req.CustomerID)
 	if !ok {
 		return
 	}
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, customer.TenantID)
+	if !ok {
+		return
+	}
+	opp.TenantID = customer.TenantID
 	opp.CustomerID = req.CustomerID
 	opp.Name = req.Name
-	opp.Stage = validStage(req.Stage)
+	opp.Stage = req.Stage
 	opp.Amount = req.Amount
 	opp.ExpectDate = req.ExpectDate
 	opp.OwnerID = ownerID

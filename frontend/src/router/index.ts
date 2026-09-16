@@ -51,6 +51,24 @@ const router = createRouter({
 // ---- dynamic routes from the profile menu tree ----
 
 const dynamicNames: string[] = []
+let dynamicRoutesReady = false
+
+const keepAliveNames: Record<string, string> = {
+  'crm/contact/index': 'CrmContact',
+  'crm/customer/index': 'CrmCustomer',
+  'crm/follow/index': 'CrmFollow',
+  'sales/contract/index': 'SalesContract',
+  'sales/opportunity/index': 'SalesOpportunity',
+  'system/api/index': 'SystemApi',
+  'system/dept/index': 'SystemDept',
+  'system/dict/index': 'SystemDict',
+  'system/log/login': 'SystemLoginLog',
+  'system/log/oper': 'SystemOperLog',
+  'system/menu/index': 'SystemMenu',
+  'system/role/index': 'SystemRole',
+  'system/tenant/index': 'SystemTenant',
+  'system/user/index': 'SystemUser',
+}
 
 function registerMenuRoutes(menus: Menu[], base: string) {
   for (const menu of menus) {
@@ -66,10 +84,21 @@ function registerMenuRoutes(menus: Menu[], base: string) {
       path: full,
       name,
       component: resolveView(menu.component),
-      meta: { title: menu.title, perm: menu.perms || undefined },
+      meta: {
+        title: menu.title,
+        perm: menu.perms || undefined,
+        keepAliveName: keepAliveNames[menu.component],
+      },
     })
     dynamicNames.push(name)
   }
+}
+
+function ensureDynamicRoutes(menus: Menu[]) {
+  if (dynamicRoutesReady) return false
+  registerMenuRoutes(menus, '')
+  dynamicRoutesReady = true
+  return true
 }
 
 // resetDynamicRoutes removes every route registered from menu data; called
@@ -78,6 +107,7 @@ export function resetDynamicRoutes() {
   for (const name of dynamicNames.splice(0)) {
     if (router.hasRoute(name)) router.removeRoute(name)
   }
+  dynamicRoutesReady = false
 }
 
 router.beforeEach(async (to) => {
@@ -89,15 +119,18 @@ router.beforeEach(async (to) => {
   if (!store.isLoggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  if (!store.profile) {
+  if (!store.profile || !dynamicRoutesReady) {
     try {
-      const profile = await fetchProfile()
-      store.setProfile(profile)
-      registerMenuRoutes(profile.menus ?? [], '')
-      // Routes were just added during this navigation; re-resolve so the
-      // target (or a deep link) matches the freshly registered record.
-      return { path: to.fullPath, replace: true }
+      const profile = store.profile ?? await fetchProfile()
+      if (!store.profile) store.setProfile(profile)
+      if (ensureDynamicRoutes(profile.menus ?? [])) {
+        // Routes were just added during this navigation; re-resolve so the
+        // target (or a deep link) matches the freshly registered record.
+        return { path: to.fullPath, replace: true }
+      }
     } catch {
+      store.logout()
+      resetDynamicRoutes()
       return { path: '/login', query: { redirect: to.fullPath } }
     }
   }

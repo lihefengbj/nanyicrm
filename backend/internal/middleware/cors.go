@@ -6,13 +6,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORS allows the dev frontend (vite on another port) to call the API.
-func CORS() gin.HandlerFunc {
+// CORS allows configured frontends to call the API.
+func CORS(allowedOrigins []string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = struct{}{}
+	}
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
+			if _, ok := allowed[origin]; !ok {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Vary", "Origin")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		}

@@ -11,12 +11,13 @@ import (
 )
 
 type Config struct {
-	App    AppConfig     `yaml:"app"`
-	Server ServerConfig  `yaml:"server"`
-	MySQL  []MySQLConfig `yaml:"mysql"`
-	Redis  RedisConfig   `yaml:"redis"`
-	JWT    JWTConfig     `yaml:"jwt"`
-	Log    LogConfig     `yaml:"log"`
+	App       AppConfig       `yaml:"app"`
+	Server    ServerConfig    `yaml:"server"`
+	MySQL     []MySQLConfig   `yaml:"mysql"`
+	Redis     RedisConfig     `yaml:"redis"`
+	JWT       JWTConfig       `yaml:"jwt"`
+	Log       LogConfig       `yaml:"log"`
+	Bootstrap BootstrapConfig `yaml:"bootstrap"`
 }
 
 type AppConfig struct {
@@ -24,8 +25,10 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Port string `yaml:"port"`
-	Mode string `yaml:"mode"` // debug / release
+	Port           string   `yaml:"port"`
+	Mode           string   `yaml:"mode"` // debug / release
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // MySQLConfig describes one MySQL connection. Multiple entries are supported;
@@ -56,6 +59,11 @@ type LogConfig struct {
 	RetainDays int    `yaml:"retain_days"` // days to keep daily log files, 0 keeps forever
 }
 
+type BootstrapConfig struct {
+	AdminPassword      string `yaml:"admin_password"`
+	SuperAdminPassword string `yaml:"super_admin_password"`
+}
+
 // Load reads configuration from the yaml file at CONFIG_PATH, falling back to
 // config/config.yaml (relative to the working directory) and then to built-in
 // local-development defaults.
@@ -80,9 +88,18 @@ func Load() *Config {
 
 func defaults() *Config {
 	return &Config{
-		Server: ServerConfig{Port: "8080", Mode: "debug"},
-		Redis:  RedisConfig{Addr: "127.0.0.1:6379"},
-		Log:    LogConfig{Dir: "log", File: "server.log"},
+		Server: ServerConfig{
+			Port:           "8080",
+			Mode:           "debug",
+			AllowedOrigins: []string{"http://localhost:5173", "http://127.0.0.1:5173"},
+			TrustedProxies: []string{"127.0.0.1", "::1"},
+		},
+		Redis: RedisConfig{Addr: "127.0.0.1:6379"},
+		Log:   LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
+		Bootstrap: BootstrapConfig{
+			AdminPassword:      "admin123",
+			SuperAdminPassword: "superAdmin123",
+		},
 	}
 }
 
@@ -119,8 +136,19 @@ func (c *Config) applyDefaults() {
 	if c.Log.File == "" {
 		c.Log.File = "server.log"
 	}
-	if c.Log.RetainDays == 0 {
-		c.Log.RetainDays = 30
+	if c.App.Env == "prod" {
+		if len(c.JWT.SigningKey) < 32 || c.JWT.SigningKey == "nanyicrm-dev-signing-key-change-me" {
+			panic("config: production jwt.signing_key must be at least 32 characters")
+		}
+		if len(c.MySQL) == 0 || strings.TrimSpace(c.DefaultMySQL().DSN) == "" {
+			panic("config: production mysql.dsn is required")
+		}
+		if len(c.Bootstrap.AdminPassword) < 12 || c.Bootstrap.AdminPassword == "admin123" {
+			panic("config: production bootstrap.admin_password must be at least 12 characters")
+		}
+		if len(c.Bootstrap.SuperAdminPassword) < 12 || c.Bootstrap.SuperAdminPassword == "superAdmin123" {
+			panic("config: production bootstrap.super_admin_password must be at least 12 characters")
+		}
 	}
 }
 

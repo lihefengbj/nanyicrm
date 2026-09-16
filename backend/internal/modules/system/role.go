@@ -70,9 +70,33 @@ type RoleSaveRequest struct {
 	Name    string   `json:"name" binding:"required,max=64"`
 	Code    string   `json:"code" binding:"required,max=64"`
 	Sort    int      `json:"sort"`
-	Status  int8     `json:"status"`
+	Status  int8     `json:"status" binding:"oneof=0 1"`
 	Remark  string   `json:"remark" binding:"max=255"`
 	MenuIDs []uint64 `json:"menuIds"`
+}
+
+func (h *RoleHandler) validateMenuIDs(c *gin.Context, menuIDs []uint64) ([]uint64, bool) {
+	if len(menuIDs) == 0 {
+		return nil, true
+	}
+	unique := make([]uint64, 0, len(menuIDs))
+	seen := make(map[uint64]struct{}, len(menuIDs))
+	for _, id := range menuIDs {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			unique = append(unique, id)
+		}
+	}
+	var count int64
+	if err := h.db.Model(&model.SysMenu{}).Where("id IN ?", unique).Count(&count).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return nil, false
+	}
+	if count != int64(len(unique)) {
+		common.FailMsg(c, common.CodeParamInvalid, "菜单不存在")
+		return nil, false
+	}
+	return unique, true
 }
 
 // @Summary  新增角色
@@ -87,6 +111,10 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
+	menuIDs, ok := h.validateMenuIDs(c, req.MenuIDs)
+	if !ok {
+		return
+	}
 	var exists int64
 	h.db.Model(&model.SysRole{}).Where("code = ?", req.Code).Count(&exists)
 	if exists > 0 {
@@ -94,14 +122,11 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		return
 	}
 	role := model.SysRole{Name: req.Name, Code: req.Code, Sort: req.Sort, Status: req.Status, Remark: req.Remark}
-	if role.Status == 0 {
-		role.Status = 1
-	}
 	err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&role).Error; err != nil {
 			return err
 		}
-		return replaceRoleMenus(tx, role.ID, req.MenuIDs)
+		return replaceRoleMenus(tx, role.ID, menuIDs)
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -127,13 +152,25 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeRoleNotFound)
 		return
 	}
+	if (role.Code == middleware.RoleCodeAdmin || role.Code == middleware.RoleCodeSuperAdmin) && !middleware.IsSuper(c) {
+		common.Fail(c, common.CodeForbidden)
+		return
+	}
 	var req RoleSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
+	menuIDs, ok := h.validateMenuIDs(c, req.MenuIDs)
+	if !ok {
+		return
+	}
 	if role.Code == middleware.RoleCodeSuperAdmin && req.Code != middleware.RoleCodeSuperAdmin {
 		common.FailMsg(c, common.CodeParamInvalid, "内置超级管理员角色标识不可修改")
+		return
+	}
+	if role.Code == middleware.RoleCodeAdmin && req.Code != middleware.RoleCodeAdmin {
+		common.FailMsg(c, common.CodeParamInvalid, "内置管理员角色标识不可修改")
 		return
 	}
 	if req.Code != role.Code {
@@ -155,7 +192,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		if err := tx.Save(&role).Error; err != nil {
 			return err
 		}
-		return replaceRoleMenus(tx, role.ID, req.MenuIDs)
+		return replaceRoleMenus(tx, role.ID, menuIDs)
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -181,8 +218,8 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 		common.Fail(c, common.CodeRoleNotFound)
 		return
 	}
-	if role.Code == middleware.RoleCodeSuperAdmin {
-		common.FailMsg(c, common.CodeParamInvalid, "内置超级管理员角色不可删除")
+	if role.Code == middleware.RoleCodeSuperAdmin || role.Code == middleware.RoleCodeAdmin {
+		common.FailMsg(c, common.CodeParamInvalid, "内置管理员角色不可删除")
 		return
 	}
 	err = h.db.Transaction(func(tx *gorm.DB) error {

@@ -19,6 +19,11 @@
             <el-option label="已流失" value="3" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="isPrivileged" label="租户">
+          <el-select v-model="query.tenantId" clearable placeholder="全部" style="width: 160px">
+            <el-option v-for="tenant in tenantOptions" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-checkbox v-model="onlyMine">只看我负责的</el-checkbox>
         </el-form-item>
@@ -32,6 +37,7 @@
 
       <el-table v-loading="loading" :data="rows" border>
         <el-table-column prop="name" label="客户名称" min-width="160" />
+        <el-table-column v-if="isPrivileged" prop="tenantId" label="租户ID" width="90" />
         <el-table-column prop="phone" label="电话" width="130" />
         <el-table-column prop="source" label="来源" width="100" />
         <el-table-column prop="industry" label="行业" width="120" />
@@ -67,6 +73,11 @@
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑客户' : '新增客户'" width="520px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px">
+        <el-form-item v-if="isPrivileged" label="所属租户" prop="tenantId">
+          <el-select v-model="form.tenantId" placeholder="请选择租户" style="width: 100%">
+            <el-option v-for="tenant in tenantOptions" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="客户名称" prop="name">
           <el-input v-model="form.name" />
         </el-form-item>
@@ -110,31 +121,41 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'CrmCustomer' })
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { listCustomers, createCustomer, updateCustomer, deleteCustomer } from '@/api/crm'
-import type { Customer } from '@/types/api'
+import { listAllTenants } from '@/api/system'
+import type { Customer, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
 const router = useRouter()
+const isPrivileged = computed(() => store.profile?.isPrivileged ?? false)
+const tenantOptions = ref<Tenant[]>([])
 
 const loading = ref(false)
 const rows = ref<Customer[]>([])
 const total = ref(0)
 const onlyMine = ref(false)
-const query = reactive({ pageNum: 1, pageSize: 10, name: '', status: '', level: '' })
+const query = reactive({ pageNum: 1, pageSize: 10, name: '', status: '', level: '', tenantId: undefined as number | undefined })
 
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive({ name: '', phone: '', source: '', industry: '', level: 'B', status: 1, address: '', remark: '' })
+const form = reactive({ tenantId: undefined as number | undefined, name: '', phone: '', source: '', industry: '', level: 'B', status: 1, address: '', remark: '' })
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
+  tenantId: [{
+    validator: (_rule: unknown, value: number | undefined, callback: (error?: Error) => void) => {
+      if (isPrivileged.value && !value) callback(new Error('请选择所属租户'))
+      else callback()
+    },
+    trigger: 'change',
+  }],
 }
 
 function statusText(s: number) {
@@ -160,6 +181,7 @@ watch(onlyMine, () => load(1))
 
 function openDialog(row?: Customer) {
   editingId.value = row?.id ?? null
+  form.tenantId = row?.tenantId || undefined
   form.name = row?.name ?? ''
   form.phone = row?.phone ?? ''
   form.source = row?.source ?? ''
@@ -203,5 +225,10 @@ function goFollow(row: Customer) {
   router.push({ path: '/crm/follow', query: { customerId: row.id } })
 }
 
-onMounted(load)
+onMounted(async () => {
+  if (isPrivileged.value) {
+    tenantOptions.value = await listAllTenants().catch(() => [])
+  }
+  load()
+})
 </script>

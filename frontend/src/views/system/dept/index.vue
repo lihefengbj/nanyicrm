@@ -2,6 +2,12 @@
   <div>
     <el-card>
       <el-form inline @submit.prevent>
+        <el-form-item v-if="isPrivileged" label="租户">
+          <el-select v-model="selectedTenantId" style="width: 180px" @change="load">
+            <el-option label="平台" :value="0" />
+            <el-option v-for="tenant in tenantOptions" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button v-if="store.hasPerm('system:dept:create')" type="primary" plain :icon="Plus" @click="openDialog()">
             新增根部门
@@ -32,6 +38,12 @@
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑部门' : '新增部门'" width="480px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px">
+        <el-form-item v-if="isPrivileged" label="所属租户">
+          <el-select v-model="form.tenantId" disabled style="width: 100%">
+            <el-option label="平台" :value="0" />
+            <el-option v-for="tenant in tenantOptions" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="上级部门">
           <el-tree-select v-model="form.parentId" :data="deptOptions" check-strictly :render-after-expand="false"
             :props="{ label: 'name', value: 'id', children: 'children' }" clearable placeholder="留空为根部门"
@@ -63,14 +75,17 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'SystemDept' })
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { deptTree, createDept, updateDept, deleteDept } from '@/api/system'
-import type { Dept } from '@/types/api'
+import { deptTree, createDept, updateDept, deleteDept, listAllTenants } from '@/api/system'
+import type { Dept, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const isPrivileged = computed(() => store.profile?.isPrivileged ?? false)
+const selectedTenantId = ref<number | undefined>(isPrivileged.value ? 0 : undefined)
+const tenantOptions = ref<Tenant[]>([])
 
 const loading = ref(false)
 const rows = ref<Dept[]>([])
@@ -80,7 +95,7 @@ const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive({ parentId: undefined as number | undefined, name: '', leader: '', sort: 0, status: 1 })
+const form = reactive({ tenantId: undefined as number | undefined, parentId: undefined as number | undefined, name: '', leader: '', sort: 0, status: 1 })
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入部门名称', trigger: 'blur' }],
@@ -89,7 +104,7 @@ const formRules: FormRules = {
 async function load() {
   loading.value = true
   try {
-    rows.value = await deptTree()
+    rows.value = await deptTree(selectedTenantId.value)
     deptOptions.value = rows.value
   } finally {
     loading.value = false
@@ -98,6 +113,7 @@ async function load() {
 
 function openDialog(row?: Dept, parentId?: number) {
   editingId.value = row?.id ?? null
+  form.tenantId = row?.tenantId ?? selectedTenantId.value
   form.parentId = row?.parentId ?? parentId ?? undefined
   if (form.parentId === 0) form.parentId = undefined
   form.name = row?.name ?? ''
@@ -136,6 +152,11 @@ async function onDelete(row: Dept) {
   load()
 }
 
-onMounted(load)
+onMounted(async () => {
+  if (isPrivileged.value) {
+    tenantOptions.value = await listAllTenants().catch(() => [])
+  }
+  load()
+})
 </script>
 

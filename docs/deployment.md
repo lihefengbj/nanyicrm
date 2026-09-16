@@ -9,19 +9,19 @@
 ```bash
 # 1. 配置密钥（不要提交真实 .env）
 cp deploy/.env.example deploy/.env
-# 编辑 deploy/.env：MYSQL_Password / REDIS_Password / JWT_SIGNING_KEY
+# 编辑 deploy/.env：数据库、Redis、JWT 及两个初始化管理员密码
 
 # 2. 构建并启动
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
 
 # 3. 验证
-curl http://localhost/api/v1/healthz   # 经前端 nginx 反代
+curl http://localhost/healthz   # 经前端 nginx 反代
 ```
 
 首次启动后端自动建表（AutoMigrate）并写入种子数据：
 
-- `superAdmin / superAdmin123`（硬编码超管）
-- `admin / admin123`（跨租户管理员）
+- `superAdmin`（密码来自 `BOOTSTRAP_SUPER_ADMIN_PASSWORD`）
+- `admin`（密码来自 `BOOTSTRAP_ADMIN_PASSWORD`）
 
 两个默认密码登录后请立即修改。
 
@@ -69,9 +69,22 @@ pnpm build        # 产物在 frontend/dist
 
 ## 四、升级流程
 
-1. `git pull` 后重新 `up -d --build`
-2. 后端启动时自动执行 AutoMigrate，新表/新列/新菜单种子幂等写入，无需人工干预
-3. 如有破坏性变更会在提交信息中注明，需要先备份再升级
+1. 升级前备份数据库。
+2. 执行 `backend/migrations` 中尚未应用的版本化迁移。
+3. `git pull` 后重新 `up -d --build`。
+4. 后端当前仍会执行 AutoMigrate，用于校验并补齐非破坏性结构；后续将完全切换到版本化迁移。
+
+应用 `000005_tenant_integrity` 前，应先确认同一租户内不存在重复合同编号：
+
+```sql
+SELECT tenant_id, code, COUNT(*) AS total
+FROM crm_contract
+WHERE deleted_at IS NULL AND code <> ''
+GROUP BY tenant_id, code
+HAVING COUNT(*) > 1;
+```
+
+本次升级会使旧 Refresh Token 失效，在线用户需要重新登录。
 
 ## 五、CI
 

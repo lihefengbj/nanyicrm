@@ -60,24 +60,25 @@ func (h *FollowUpHandler) List(c *gin.Context) {
 type FollowUpSaveRequest struct {
 	CustomerID uint64     `json:"customerId" binding:"required"`
 	ContactID  *uint64    `json:"contactId"`
-	Type       int8       `json:"type"`
+	Type       int8       `json:"type" binding:"oneof=1 2 3 4"`
 	Content    string     `json:"content" binding:"required,max=1024"`
 	NextAt     *time.Time `json:"nextAt"`
 }
 
-func (h *FollowUpHandler) validateRefs(c *gin.Context, req *FollowUpSaveRequest) bool {
+func (h *FollowUpHandler) validateRefs(c *gin.Context, req *FollowUpSaveRequest) (*model.CrmCustomer, bool) {
 	customer, ok := findCustomerInTenant(c, h.db, req.CustomerID)
 	if !ok {
-		return false
+		return nil, false
 	}
 	if req.ContactID != nil && *req.ContactID > 0 {
 		var contact model.CrmContact
-		if err := h.db.First(&contact, *req.ContactID).Error; err != nil || contact.CustomerID != customer.ID {
+		if err := h.db.First(&contact, *req.ContactID).Error; err != nil ||
+			contact.CustomerID != customer.ID || contact.TenantID != customer.TenantID {
 			common.FailMsg(c, common.CodeParamInvalid, "联系人不属于该客户")
-			return false
+			return nil, false
 		}
 	}
-	return true
+	return customer, true
 }
 
 // @Summary  新增跟进记录
@@ -92,14 +93,12 @@ func (h *FollowUpHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if !h.validateRefs(c, &req) {
+	customer, ok := h.validateRefs(c, &req)
+	if !ok {
 		return
 	}
-	if req.Type < 1 || req.Type > 4 {
-		req.Type = 1
-	}
 	follow := model.CrmFollowUp{
-		TenantID:   middleware.CurrentTenantID(c),
+		TenantID:   customer.TenantID,
 		CustomerID: req.CustomerID,
 		ContactID:  req.ContactID,
 		Type:       req.Type,
@@ -151,12 +150,11 @@ func (h *FollowUpHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if !h.validateRefs(c, &req) {
+	customer, ok := h.validateRefs(c, &req)
+	if !ok {
 		return
 	}
-	if req.Type < 1 || req.Type > 4 {
-		req.Type = 1
-	}
+	follow.TenantID = customer.TenantID
 	follow.CustomerID = req.CustomerID
 	follow.ContactID = req.ContactID
 	follow.Type = req.Type

@@ -6,6 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const ContextResponseCode = "responseBusinessCode"
+
 type Response struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
@@ -20,6 +22,7 @@ type PageResult struct {
 }
 
 func OK(c *gin.Context, data interface{}) {
+	c.Set(ContextResponseCode, CodeSuccess)
 	c.JSON(http.StatusOK, Response{Code: CodeSuccess, Message: CodeMessage(CodeSuccess), Data: data})
 }
 
@@ -39,6 +42,7 @@ func FailMsg(c *gin.Context, code int, msg string) {
 	case CodeForbidden:
 		status = http.StatusForbidden
 	}
+	c.Set(ContextResponseCode, code)
 	c.JSON(status, Response{Code: code, Message: msg})
 }
 

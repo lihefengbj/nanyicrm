@@ -158,6 +158,7 @@ export interface ApiInfo {
 
 export interface Dept {
   id: number
+  tenantId: number
   parentId: number
   name: string
   leader: string
@@ -167,6 +168,7 @@ export interface Dept {
 }
 
 export interface DeptSavePayload {
+  tenantId?: number
   parentId: number
   name: string
   leader: string
@@ -220,6 +222,7 @@ export interface Customer {
 }
 
 export interface CustomerSavePayload {
+  tenantId?: number
   name: string
   phone: string
   source: string

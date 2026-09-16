@@ -63,7 +63,7 @@ func (h *ContractHandler) List(c *gin.Context) {
 }
 
 type ContractSaveRequest struct {
-	Code          string     `json:"code" binding:"max=64"`
+	Code          string     `json:"code" binding:"required,max=64"`
 	Name          string     `json:"name" binding:"required,max=128"`
 	CustomerID    uint64     `json:"customerId" binding:"required"`
 	OpportunityID *uint64    `json:"opportunityId"`
@@ -71,43 +71,56 @@ type ContractSaveRequest struct {
 	SignDate      *time.Time `json:"signDate"`
 	StartDate     *time.Time `json:"startDate"`
 	EndDate       *time.Time `json:"endDate"`
-	Status        int8       `json:"status"`
+	Status        int8       `json:"status" binding:"oneof=1 2 3 4"`
 	OwnerID       *uint64    `json:"ownerId"`
 	Remark        string     `json:"remark" binding:"max=255"`
 }
 
+func validContractTransition(from, to int8) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case 1:
+		return to == 2 || to == 4
+	case 2:
+		return to == 3 || to == 4
+	default:
+		return false
+	}
+}
+
 // validateRefs checks customer/opportunity ownership and code uniqueness
 // within the tenant. excludeID ignores the record being updated.
-func (h *ContractHandler) validateRefs(c *gin.Context, req *ContractSaveRequest, excludeID uint64) bool {
-	if _, ok := findCustomerInTenant(c, h.db, req.CustomerID); !ok {
-		return false
+func (h *ContractHandler) validateRefs(c *gin.Context, req *ContractSaveRequest, excludeID uint64) (*model.CrmCustomer, bool) {
+	customer, ok := findCustomerInTenant(c, h.db, req.CustomerID)
+	if !ok {
+		return nil, false
 	}
 	if req.OpportunityID != nil && *req.OpportunityID > 0 {
 		var opp model.CrmOpportunity
-		if err := h.db.First(&opp, *req.OpportunityID).Error; err != nil || opp.CustomerID != req.CustomerID {
+		if err := h.db.First(&opp, *req.OpportunityID).Error; err != nil ||
+			opp.CustomerID != req.CustomerID || opp.TenantID != customer.TenantID {
 			common.FailMsg(c, common.CodeParamInvalid, "商机不属于该客户")
-			return false
+			return nil, false
 		}
 	}
-	if req.Code != "" {
-		tenantID := middleware.CurrentTenantID(c)
-		var dup int64
-		h.db.Model(&model.CrmContract{}).
-			Where("tenant_id = ? AND code = ? AND id <> ?", tenantID, req.Code, excludeID).
-			Count(&dup)
-		if dup > 0 {
-			common.FailMsg(c, common.CodeParamInvalid, "合同编号已存在")
-			return false
-		}
+	var dup int64
+	if err := h.db.Model(&model.CrmContract{}).
+		Where("tenant_id = ? AND code = ? AND id <> ?", customer.TenantID, req.Code, excludeID).
+		Count(&dup).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return nil, false
 	}
-	return true
-}
-
-func validContractStatus(s int8) int8 {
-	if s < 1 || s > 4 {
-		return 1
+	if dup > 0 {
+		common.FailMsg(c, common.CodeParamInvalid, "合同编号已存在")
+		return nil, false
 	}
-	return s
+	if req.StartDate != nil && req.EndDate != nil && req.EndDate.Before(*req.StartDate) {
+		common.FailMsg(c, common.CodeParamInvalid, "合同结束日期不能早于开始日期")
+		return nil, false
+	}
+	return customer, true
 }
 
 // @Summary  新增合同（关联商机自动赢单）
@@ -122,16 +135,16 @@ func (h *ContractHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if !h.validateRefs(c, &req, 0) {
+	customer, ok := h.validateRefs(c, &req, 0)
+	if !ok {
 		return
 	}
-	uid := middleware.CurrentUserID(c)
-	ownerID := req.OwnerID
-	if ownerID == nil || *ownerID == 0 {
-		ownerID = &uid
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, customer.TenantID)
+	if !ok {
+		return
 	}
 	contract := model.CrmContract{
-		TenantID:      middleware.CurrentTenantID(c),
+		TenantID:      customer.TenantID,
 		Code:          req.Code,
 		Name:          req.Name,
 		CustomerID:    req.CustomerID,
@@ -140,7 +153,7 @@ func (h *ContractHandler) Create(c *gin.Context) {
 		SignDate:      req.SignDate,
 		StartDate:     req.StartDate,
 		EndDate:       req.EndDate,
-		Status:        validContractStatus(req.Status),
+		Status:        req.Status,
 		OwnerID:       ownerID,
 		Remark:        req.Remark,
 	}
@@ -197,9 +210,19 @@ func (h *ContractHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if !h.validateRefs(c, &req, contract.ID) {
+	customer, ok := h.validateRefs(c, &req, contract.ID)
+	if !ok {
 		return
 	}
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, customer.TenantID)
+	if !ok {
+		return
+	}
+	if !validContractTransition(contract.Status, req.Status) {
+		common.FailMsg(c, common.CodeParamInvalid, "合同状态流转不合法")
+		return
+	}
+	contract.TenantID = customer.TenantID
 	contract.Code = req.Code
 	contract.Name = req.Name
 	contract.CustomerID = req.CustomerID
@@ -208,12 +231,20 @@ func (h *ContractHandler) Update(c *gin.Context) {
 	contract.SignDate = req.SignDate
 	contract.StartDate = req.StartDate
 	contract.EndDate = req.EndDate
-	contract.Status = validContractStatus(req.Status)
-	if req.OwnerID != nil && *req.OwnerID > 0 {
-		contract.OwnerID = req.OwnerID
-	}
+	contract.Status = req.Status
+	contract.OwnerID = ownerID
 	contract.Remark = req.Remark
-	if err := h.db.Save(contract).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(contract).Error; err != nil {
+			return err
+		}
+		if contract.OpportunityID != nil && *contract.OpportunityID > 0 {
+			return tx.Model(&model.CrmOpportunity{}).
+				Where("id = ? AND tenant_id = ? AND stage BETWEEN 1 AND 4", *contract.OpportunityID, contract.TenantID).
+				Update("stage", 5).Error
+		}
+		return nil
+	}); err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}

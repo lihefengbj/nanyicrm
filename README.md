@@ -4,6 +4,7 @@ Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为�
 
 > 技术选型与架构设计已定，详见 [docs/solution.md](docs/solution.md)；部署方式见 [docs/deployment.md](docs/deployment.md)。
 > M1~M6 全部里程碑已完成，端到端冒烟测试 51 项断言全部通过（可重复执行）。
+> 生产上线前的安全与质量整改项见 [docs/hardening-plan.md](docs/hardening-plan.md)。
 
 ## 项目目标
 
@@ -135,12 +136,13 @@ cd backend
 go run ./cmd/server
 ```
 
-首次启动会自动建表并写入种子数据：
+首次启动会自动建表并写入种子数据。开发配置的初始账号为：
 
 - 内置超级管理员 `superAdmin / superAdmin123`（硬编码最高权限，全部菜单与数据放开）
 - 内置管理员 `admin / admin123`（跨租户数据视野，权限按角色分配）
 
-两者密码都请登录后尽快修改。
+生产环境必须通过 `BOOTSTRAP_ADMIN_PASSWORD` 和
+`BOOTSTRAP_SUPER_ADMIN_PASSWORD` 设置至少 12 位的初始密码。
 
 ### 启动前端
 

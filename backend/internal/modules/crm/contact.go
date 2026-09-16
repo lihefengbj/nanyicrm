@@ -60,7 +60,7 @@ type ContactSaveRequest struct {
 	Phone      string `json:"phone" binding:"max=32"`
 	Email      string `json:"email" binding:"omitempty,email,max=128"`
 	Position   string `json:"position" binding:"max=64"`
-	IsPrimary  int8   `json:"isPrimary"`
+	IsPrimary  int8   `json:"isPrimary" binding:"oneof=0 1"`
 	Remark     string `json:"remark" binding:"max=255"`
 }
 
@@ -81,11 +81,12 @@ func (h *ContactHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if _, ok := h.checkCustomer(c, req.CustomerID); !ok {
+	customer, ok := h.checkCustomer(c, req.CustomerID)
+	if !ok {
 		return
 	}
 	contact := model.CrmContact{
-		TenantID:   middleware.CurrentTenantID(c),
+		TenantID:   customer.TenantID,
 		CustomerID: req.CustomerID,
 		Name:       req.Name,
 		Phone:      req.Phone,
@@ -94,7 +95,16 @@ func (h *ContactHandler) Create(c *gin.Context) {
 		IsPrimary:  req.IsPrimary,
 		Remark:     req.Remark,
 	}
-	if err := h.db.Create(&contact).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if contact.IsPrimary == 1 {
+			if err := tx.Model(&model.CrmContact{}).
+				Where("tenant_id = ? AND customer_id = ?", contact.TenantID, contact.CustomerID).
+				Update("is_primary", 0).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&contact).Error
+	}); err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
@@ -135,9 +145,11 @@ func (h *ContactHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if _, ok := h.checkCustomer(c, req.CustomerID); !ok {
+	customer, ok := h.checkCustomer(c, req.CustomerID)
+	if !ok {
 		return
 	}
+	contact.TenantID = customer.TenantID
 	contact.CustomerID = req.CustomerID
 	contact.Name = req.Name
 	contact.Phone = req.Phone
@@ -145,7 +157,16 @@ func (h *ContactHandler) Update(c *gin.Context) {
 	contact.Position = req.Position
 	contact.IsPrimary = req.IsPrimary
 	contact.Remark = req.Remark
-	if err := h.db.Save(contact).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if contact.IsPrimary == 1 {
+			if err := tx.Model(&model.CrmContact{}).
+				Where("tenant_id = ? AND customer_id = ? AND id <> ?", contact.TenantID, contact.CustomerID, contact.ID).
+				Update("is_primary", 0).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Save(contact).Error
+	}); err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}

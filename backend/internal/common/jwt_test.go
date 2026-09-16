@@ -25,6 +25,15 @@ func TestGenerateAndParseToken(t *testing.T) {
 	if claims.UserID != 42 || claims.Username != "tester" {
 		t.Fatalf("claims = %+v", claims)
 	}
+	if claims.TokenType != TokenTypeAccess {
+		t.Fatalf("tokenType = %q, want access", claims.TokenType)
+	}
+	if _, err := ParseRefreshToken(key, pair.AccessToken); err != ErrTokenType {
+		t.Fatalf("access token accepted as refresh token: %v", err)
+	}
+	if _, err := ParseRefreshToken(key, pair.RefreshToken); err != nil {
+		t.Fatalf("parse refresh: %v", err)
+	}
 }
 
 func TestParseTokenWrongKey(t *testing.T) {

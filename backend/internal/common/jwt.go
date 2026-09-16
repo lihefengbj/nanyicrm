@@ -8,8 +8,9 @@ import (
 )
 
 type TokenClaims struct {
-	UserID   uint64 `json:"userId"`
-	Username string `json:"username"`
+	UserID    uint64 `json:"userId"`
+	Username  string `json:"username"`
+	TokenType string `json:"tokenType"`
 	jwt.RegisteredClaims
 }
 
@@ -22,14 +23,20 @@ type TokenPair struct {
 var (
 	ErrTokenExpired = errors.New("token expired")
 	ErrTokenInvalid = errors.New("token invalid")
+	ErrTokenType    = errors.New("token type invalid")
+)
+
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
 )
 
 func GenerateTokenPair(signingKey string, accessTTL, refreshTTL time.Duration, userID uint64, username string) (*TokenPair, error) {
-	access, err := signToken(signingKey, userID, username, accessTTL)
+	access, err := signToken(signingKey, userID, username, TokenTypeAccess, accessTTL)
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := signToken(signingKey, userID, username, refreshTTL)
+	refresh, err := signToken(signingKey, userID, username, TokenTypeRefresh, refreshTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -40,17 +47,37 @@ func GenerateTokenPair(signingKey string, accessTTL, refreshTTL time.Duration, u
 	}, nil
 }
 
-func signToken(signingKey string, userID uint64, username string, ttl time.Duration) (string, error) {
+func signToken(signingKey string, userID uint64, username, tokenType string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := TokenClaims{
-		UserID:   userID,
-		Username: username,
+		UserID:    userID,
+		Username:  username,
+		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(signingKey))
+}
+
+func ParseAccessToken(signingKey, tokenString string) (*TokenClaims, error) {
+	return parseTokenType(signingKey, tokenString, TokenTypeAccess)
+}
+
+func ParseRefreshToken(signingKey, tokenString string) (*TokenClaims, error) {
+	return parseTokenType(signingKey, tokenString, TokenTypeRefresh)
+}
+
+func parseTokenType(signingKey, tokenString, expected string) (*TokenClaims, error) {
+	claims, err := ParseToken(signingKey, tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != expected {
+		return nil, ErrTokenType
+	}
+	return claims, nil
 }
 
 func ParseToken(signingKey, tokenString string) (*TokenClaims, error) {

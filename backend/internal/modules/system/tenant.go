@@ -77,7 +77,7 @@ type TenantSaveRequest struct {
 	Contact  string `json:"contact" binding:"max=64"`
 	Phone    string `json:"phone" binding:"max=32"`
 	ExpireAt string `json:"expireAt"` // RFC3339 date or "" for never
-	Status   int8   `json:"status"`
+	Status   int8   `json:"status" binding:"oneof=0 1"`
 	Remark   string `json:"remark" binding:"max=255"`
 }
 
@@ -86,8 +86,9 @@ func parseExpireAt(s string) (*time.Time, error) {
 	if s == "" {
 		return nil, nil
 	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return &t, nil
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		endOfDay := t.AddDate(0, 0, 1).Add(-time.Nanosecond)
+		return &endOfDay, nil
 	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return &t, nil
@@ -127,9 +128,6 @@ func (h *TenantHandler) Create(c *gin.Context) {
 	tenant := model.SysTenant{
 		Code: req.Code, Name: req.Name, Contact: req.Contact, Phone: req.Phone,
 		ExpireAt: expireAt, Status: req.Status, Remark: req.Remark,
-	}
-	if tenant.Status == 0 {
-		tenant.Status = 1
 	}
 	if err := h.db.Create(&tenant).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -213,6 +211,11 @@ func (h *TenantHandler) Delete(c *gin.Context) {
 		{&model.SysDict{}, "字典"},
 		{&model.SysOperLog{}, "操作日志"},
 		{&model.SysLoginLog{}, "登录日志"},
+		{&model.CrmCustomer{}, "客户"},
+		{&model.CrmContact{}, "联系人"},
+		{&model.CrmFollowUp{}, "跟进记录"},
+		{&model.CrmOpportunity{}, "商机"},
+		{&model.CrmContract{}, "合同"},
 	}
 	for _, chk := range checks {
 		var count int64

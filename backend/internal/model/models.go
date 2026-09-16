@@ -22,8 +22,8 @@ type SysTenant struct {
 	Name     string     `gorm:"size:64;not null" json:"name"`
 	Contact  string     `gorm:"size:64" json:"contact"`
 	Phone    string     `gorm:"size:32" json:"phone"`
-	ExpireAt *time.Time `json:"expireAt"`                // nil = never expires
-	Status   int8       `gorm:"default:1" json:"status"` // 1 enabled, 0 disabled
+	ExpireAt *time.Time `json:"expireAt"` // nil = never expires
+	Status   int8       `json:"status"`   // 1 enabled, 0 disabled
 	Remark   string     `gorm:"size:255" json:"remark"`
 }
 
@@ -49,7 +49,7 @@ type SysUser struct {
 	Email    string     `gorm:"size:128" json:"email"`
 	Phone    string     `gorm:"size:32" json:"phone"`
 	DeptID   *uint64    `gorm:"index" json:"deptId"`
-	Status   int8       `gorm:"default:1" json:"status"` // 1 enabled, 0 disabled
+	Status   int8       `json:"status"` // 1 enabled, 0 disabled
 	Remark   string     `gorm:"size:255" json:"remark"`
 	Dept     *SysDept   `gorm:"foreignKey:DeptID" json:"dept,omitempty"`
 	Tenant   *SysTenant `gorm:"foreignKey:TenantID" json:"tenant,omitempty"`
@@ -65,7 +65,7 @@ type SysDept struct {
 	Name     string    `gorm:"size:64;not null" json:"name"`
 	Leader   string    `gorm:"size:64" json:"leader"`
 	Sort     int       `gorm:"default:0" json:"sort"`
-	Status   int8      `gorm:"default:1" json:"status"`
+	Status   int8      `json:"status"`
 	Children []SysDept `gorm:"-" json:"children,omitempty"`
 }
 
@@ -78,7 +78,7 @@ type SysRole struct {
 	Name   string    `gorm:"size:64;not null" json:"name"`
 	Code   string    `gorm:"size:64;uniqueIndex;not null" json:"code"`
 	Sort   int       `gorm:"default:0" json:"sort"`
-	Status int8      `gorm:"default:1" json:"status"`
+	Status int8      `json:"status"`
 	Remark string    `gorm:"size:255" json:"remark"`
 	Menus  []SysMenu `gorm:"many2many:sys_role_menu;joinForeignKey:RoleID;joinReferences:MenuID" json:"menus,omitempty"`
 }
@@ -96,8 +96,8 @@ type SysMenu struct {
 	Perms     string    `gorm:"size:128" json:"perms"` // e.g. system:user:list
 	Icon      string    `gorm:"size:64" json:"icon"`
 	Sort      int       `gorm:"default:0" json:"sort"`
-	Visible   int8      `gorm:"default:1" json:"visible"`
-	Status    int8      `gorm:"default:1" json:"status"`
+	Visible   int8      `json:"visible"`
+	Status    int8      `json:"status"`
 	Children  []SysMenu `gorm:"-" json:"children,omitempty"`
 }
 
@@ -122,7 +122,7 @@ type SysDict struct {
 	TenantID uint64        `gorm:"uniqueIndex:uk_dict_tenant_type;index;default:0" json:"tenantId"`
 	Name     string        `gorm:"size:64;not null" json:"name"`
 	Type     string        `gorm:"size:64;uniqueIndex:uk_dict_tenant_type;not null" json:"type"`
-	Status   int8          `gorm:"default:1" json:"status"`
+	Status   int8          `json:"status"`
 	Remark   string        `gorm:"size:255" json:"remark"`
 	Items    []SysDictItem `gorm:"foreignKey:DictID" json:"items,omitempty"`
 }
@@ -135,7 +135,7 @@ type SysDictItem struct {
 	Label  string `gorm:"size:64;not null" json:"label"`
 	Value  string `gorm:"size:64;not null" json:"value"`
 	Sort   int    `gorm:"default:0" json:"sort"`
-	Status int8   `gorm:"default:1" json:"status"`
+	Status int8   `json:"status"`
 }
 
 func (SysDictItem) TableName() string { return "sys_dict_item" }
@@ -246,7 +246,7 @@ func (CrmOpportunity) TableName() string { return "crm_opportunity" }
 type CrmContract struct {
 	Base
 	TenantID      uint64          `gorm:"index;default:0" json:"tenantId"`
-	Code          string          `gorm:"size:64;index" json:"code"` // 合同编号，租户内唯一（代码保证）
+	Code          string          `gorm:"size:64;index" json:"code"`
 	Name          string          `gorm:"size:128;not null" json:"name"`
 	CustomerID    uint64          `gorm:"index;not null" json:"customerId"`
 	OpportunityID *uint64         `gorm:"index" json:"opportunityId"`

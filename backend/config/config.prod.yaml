@@ -1,8 +1,13 @@
 # Production configuration. Secrets come from the environment; do NOT
 # commit real credentials here.
+app:
+  env: prod
 server:
   port: "8080"
   mode: release
+  allowed_origins: []
+  trusted_proxies:
+    - "172.16.0.0/12"
 mysql:
   - name: default
     dsn: "root:${MYSQL_Password}@tcp(mysql:3306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local"
@@ -14,6 +19,9 @@ jwt:
   signing_key: "${JWT_SIGNING_KEY}"
   access_ttl: 2h
   refresh_ttl: 168h
+bootstrap:
+  admin_password: "${BOOTSTRAP_ADMIN_PASSWORD}"
+  super_admin_password: "${BOOTSTRAP_SUPER_ADMIN_PASSWORD}"
 log:
   dir: log
   file: server.log

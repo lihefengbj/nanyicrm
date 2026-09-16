@@ -79,7 +79,7 @@ export function deleteMenu(id: number) {
 
 // ---- dept ----
 export function deptTree(tenantId?: number) {
-  return get<Dept[]>('/system/dept/tree', tenantId ? { tenantId } : {})
+  return get<Dept[]>('/system/dept/tree', tenantId !== undefined ? { tenantId } : {})
 }
 export function createDept(data: DeptSavePayload) {
   return post<{ id: number }>('/system/dept', data)

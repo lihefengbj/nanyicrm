@@ -72,7 +72,7 @@ type UserSaveRequest struct {
 	Phone    string   `json:"phone" binding:"max=32"`
 	DeptID   *uint64  `json:"deptId"`
 	TenantID uint64   `json:"tenantId"` // super admin only; ignored for tenant users
-	Status   int8     `json:"status"`
+	Status   int8     `json:"status" binding:"oneof=0 1"`
 	Remark   string   `json:"remark" binding:"max=255"`
 	RoleIDs  []uint64 `json:"roleIds"`
 }
@@ -134,6 +134,10 @@ func (h *UserHandler) Create(c *gin.Context) {
 	if !ok {
 		return
 	}
+	roleIDs, ok := h.validateRoleAssignments(c, req.RoleIDs, 0)
+	if !ok {
+		return
+	}
 
 	var exists int64
 	h.db.Model(&model.SysUser{}).Where("username = ?", req.Username).Count(&exists)
@@ -158,15 +162,11 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Status:   req.Status,
 		Remark:   req.Remark,
 	}
-	if user.Status == 0 {
-		user.Status = 1
-	}
-
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
-		return replaceUserRoles(tx, user.ID, req.RoleIDs)
+		return replaceUserRoles(tx, user.ID, roleIDs)
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -205,6 +205,15 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if user.Username == middleware.UsernameSuperAdmin && !middleware.IsSuper(c) {
+		common.Fail(c, common.CodeForbidden)
+		return
+	}
+	if user.Username == middleware.RoleCodeAdmin &&
+		!middleware.IsSuper(c) && middleware.CurrentUserID(c) != user.ID {
+		common.Fail(c, common.CodeForbidden)
+		return
+	}
 
 	var req UserSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -216,6 +225,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 		req.TenantID = user.TenantID
 	}
 	tenantID, ok := h.resolveTenant(c, &req, user.ID)
+	if !ok {
+		return
+	}
+	roleIDs, ok := h.validateRoleAssignments(c, req.RoleIDs, user.ID)
 	if !ok {
 		return
 	}
@@ -246,13 +259,76 @@ func (h *UserHandler) Update(c *gin.Context) {
 		if err := tx.Save(&user).Error; err != nil {
 			return err
 		}
-		return replaceUserRoles(tx, user.ID, req.RoleIDs)
+		return replaceUserRoles(tx, user.ID, roleIDs)
 	})
 	if err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
 	common.OK(c, nil)
+}
+
+func (h *UserHandler) validateRoleAssignments(c *gin.Context, roleIDs []uint64, targetUserID uint64) ([]uint64, bool) {
+	if len(roleIDs) == 0 {
+		if targetUserID == middleware.CurrentUserID(c) && middleware.IsSuper(c) {
+			common.FailMsg(c, common.CodeParamInvalid, "超级管理员不能移除自己的超级管理员角色")
+			return nil, false
+		}
+		if targetUserID == middleware.CurrentUserID(c) && middleware.IsPrivileged(c) && !middleware.IsSuper(c) {
+			common.FailMsg(c, common.CodeParamInvalid, "管理员不能移除自己的管理员角色")
+			return nil, false
+		}
+		return nil, true
+	}
+	unique := make([]uint64, 0, len(roleIDs))
+	seen := make(map[uint64]struct{}, len(roleIDs))
+	for _, id := range roleIDs {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			unique = append(unique, id)
+		}
+	}
+	var roles []model.SysRole
+	if err := h.db.Where("id IN ? AND status = 1", unique).Find(&roles).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return nil, false
+	}
+	if len(roles) != len(unique) {
+		common.FailMsg(c, common.CodeParamInvalid, "角色不存在或已停用")
+		return nil, false
+	}
+	hasAdminRole := false
+	hasSuperAdminRole := false
+	for _, role := range roles {
+		protected := role.Code == middleware.RoleCodeAdmin || role.Code == middleware.RoleCodeSuperAdmin
+		editingOwnAdminRole := role.Code == middleware.RoleCodeAdmin &&
+			targetUserID == middleware.CurrentUserID(c) && middleware.IsPrivileged(c)
+		if editingOwnAdminRole {
+			hasAdminRole = true
+		}
+		if role.Code == middleware.RoleCodeSuperAdmin {
+			hasSuperAdminRole = true
+			var target model.SysUser
+			if targetUserID == 0 || h.db.Select("username").First(&target, targetUserID).Error != nil ||
+				target.Username != middleware.UsernameSuperAdmin {
+				common.FailMsg(c, common.CodeParamInvalid, "超级管理员角色只能绑定内置超级管理员账号")
+				return nil, false
+			}
+		}
+		if protected && !middleware.IsSuper(c) && !editingOwnAdminRole {
+			common.Fail(c, common.CodeForbidden)
+			return nil, false
+		}
+	}
+	if targetUserID == middleware.CurrentUserID(c) && middleware.IsPrivileged(c) && !middleware.IsSuper(c) && !hasAdminRole {
+		common.FailMsg(c, common.CodeParamInvalid, "管理员不能移除自己的管理员角色")
+		return nil, false
+	}
+	if targetUserID == middleware.CurrentUserID(c) && middleware.IsSuper(c) && !hasSuperAdminRole {
+		common.FailMsg(c, common.CodeParamInvalid, "超级管理员不能移除自己的超级管理员角色")
+		return nil, false
+	}
+	return unique, true
 }
 
 // @Summary  删除用户

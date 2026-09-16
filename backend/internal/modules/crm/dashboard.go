@@ -44,41 +44,59 @@ func (h *DashboardHandler) Summary(c *gin.Context) {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
-	scoped(&model.CrmCustomer{}, "crm_customer").Where("owner_id = ?", uid).Count(&myCustomerTotal)
+	if err := scoped(&model.CrmCustomer{}, "crm_customer").Where("owner_id = ?", uid).Count(&myCustomerTotal).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	var openOppCount int64
 	var openOppAmount float64
-	scoped(&model.CrmOpportunity{}, "crm_opportunity").
+	if err := scoped(&model.CrmOpportunity{}, "crm_opportunity").
 		Where("stage BETWEEN 1 AND 4").
 		Select("COUNT(*)", "COALESCE(SUM(amount),0)").
 		Row().
-		Scan(&openOppCount, &openOppAmount)
+		Scan(&openOppCount, &openOppAmount); err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	var contractTotal int64
 	var contractAmount float64
-	scoped(&model.CrmContract{}, "crm_contract").
+	if err := scoped(&model.CrmContract{}, "crm_contract").
 		Where("status IN (2,3)").
 		Select("COUNT(*)", "COALESCE(SUM(amount),0)").
 		Row().
-		Scan(&contractTotal, &contractAmount)
+		Scan(&contractTotal, &contractAmount); err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	weekAgo := time.Now().AddDate(0, 0, -7)
 	var followWeekCount int64
-	scoped(&model.CrmFollowUp{}, "crm_follow_up").
+	if err := scoped(&model.CrmFollowUp{}, "crm_follow_up").
 		Where("crm_follow_up.created_at >= ?", weekAgo).
-		Count(&followWeekCount)
+		Count(&followWeekCount).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	// Pending follow-ups: customers whose latest planned follow time is due.
 	var pendingFollowCount int64
-	scoped(&model.CrmFollowUp{}, "crm_follow_up").
+	if err := scoped(&model.CrmFollowUp{}, "crm_follow_up").
 		Where("next_at IS NOT NULL AND next_at <= ?", time.Now()).
-		Count(&pendingFollowCount)
+		Count(&pendingFollowCount).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	var stages []stageStat
-	scoped(&model.CrmOpportunity{}, "crm_opportunity").
+	if err := scoped(&model.CrmOpportunity{}, "crm_opportunity").
 		Select("stage, COUNT(*) AS count, COALESCE(SUM(amount),0) AS total").
 		Group("stage").
-		Scan(&stages)
+		Scan(&stages).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
 
 	common.OK(c, gin.H{
 		"customerTotal":      customerTotal,

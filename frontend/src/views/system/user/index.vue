@@ -83,7 +83,13 @@
         </el-form-item>
         <el-form-item label="角色">
           <el-select v-model="form.roleIds" multiple style="width: 100%">
-            <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
+            <el-option
+              v-for="r in roleOptions"
+              :key="r.id"
+              :label="r.name"
+              :value="r.id"
+              :disabled="!canAssignRole(r)"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="手机号">
@@ -129,6 +135,7 @@ import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
 const isPrivileged = computed(() => store.profile?.isPrivileged ?? false)
+const isSuper = computed(() => store.profile?.isSuper ?? false)
 
 const loading = ref(false)
 const rows = ref<User[]>([])
@@ -215,6 +222,15 @@ async function loadOptions() {
   } catch {
     deptOptions.value = []
   }
+}
+
+function canAssignRole(role: Role) {
+  if (role.code === 'superAdmin') return editingId.value === store.profile?.id
+  if (isSuper.value) return true
+  if (role.code === 'admin') {
+    return editingId.value === store.profile?.id && store.profile.roles.includes('admin')
+  }
+  return true
 }
 
 function openDialog(row?: User) {

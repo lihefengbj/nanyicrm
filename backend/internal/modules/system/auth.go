@@ -2,6 +2,9 @@ package system
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +19,34 @@ import (
 )
 
 const refreshTokenKeyPrefix = "auth:refresh:"
+const loginAttemptKeyPrefix = "auth:login-attempt:"
+const maxLoginAttempts = 10
+
+var rotateRefreshTokenScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+	return 0
+end
+redis.call("DEL", KEYS[1])
+redis.call("SET", KEYS[2], ARGV[1], "PX", ARGV[2])
+return 1
+`)
+
+func refreshTokenKey(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return refreshTokenKeyPrefix + hex.EncodeToString(sum[:])
+}
+
+func loginAttemptKey(ip, username string) string {
+	sum := sha256.Sum256([]byte(ip + "\x00" + username))
+	return loginAttemptKeyPrefix + hex.EncodeToString(sum[:])
+}
+
+func (h *AuthHandler) recordLoginFailure(ctx context.Context, key string) {
+	count, err := h.rdb.Incr(ctx, key).Result()
+	if err == nil && count == 1 {
+		h.rdb.Expire(ctx, key, 10*time.Minute)
+	}
+}
 
 type AuthHandler struct {
 	db  *gorm.DB
@@ -50,15 +81,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		IP:        c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+	attemptKey := loginAttemptKey(loginLog.IP, req.Username)
+	if count, err := h.rdb.Get(ctx, attemptKey).Int(); err == nil && count >= maxLoginAttempts {
+		loginLog.Success, loginLog.Message = false, "too many attempts"
+		h.db.Create(&loginLog)
+		common.FailMsg(c, common.CodeLoginFailed, "登录尝试过多，请稍后再试")
+		return
+	}
 
 	var user model.SysUser
 	if err := h.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+		h.recordLoginFailure(ctx, attemptKey)
 		loginLog.Success, loginLog.Message = false, "user not found"
 		h.db.Create(&loginLog)
 		common.Fail(c, common.CodeLoginFailed)
 		return
 	}
+	loginLog.TenantID = user.TenantID
 	if bcrypt.CompareHashAndPassword([]byte(user.PwdHash), []byte(req.Pwd)) != nil {
+		h.recordLoginFailure(ctx, attemptKey)
 		loginLog.Success, loginLog.Message = false, "bad credential"
 		h.db.Create(&loginLog)
 		common.Fail(c, common.CodeLoginFailed)
@@ -79,7 +122,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			common.Fail(c, common.CodeTenantNotFound)
 			return
 		}
-		loginLog.TenantID = tenant.ID
 		if tenant.Status != 1 {
 			loginLog.Success, loginLog.Message = false, "tenant disabled"
 			h.db.Create(&loginLog)
@@ -100,15 +142,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
-	defer cancel()
-	if err := h.rdb.Set(ctx, refreshTokenKeyPrefix+pair.RefreshToken, user.ID, h.cfg.JWT.RefreshTokenTTL).Err(); err != nil {
+	if err := h.rdb.Set(ctx, refreshTokenKey(pair.RefreshToken), user.ID, h.cfg.JWT.RefreshTokenTTL).Err(); err != nil {
 		common.Fail(c, common.CodeRedisError)
 		return
 	}
 
 	loginLog.Success, loginLog.Message = true, "login ok"
 	h.db.Create(&loginLog)
+	h.rdb.Del(ctx, attemptKey)
 	common.OK(c, pair)
 }
 
@@ -128,7 +169,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	claims, err := common.ParseToken(h.cfg.JWT.SigningKey, req.RefreshToken)
+	claims, err := common.ParseRefreshToken(h.cfg.JWT.SigningKey, req.RefreshToken)
 	if err != nil {
 		common.Fail(c, common.CodeUnauthorized)
 		return
@@ -136,22 +177,26 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
-	key := refreshTokenKeyPrefix + req.RefreshToken
-	if err := h.rdb.Get(ctx, key).Err(); err != nil {
-		// Missing or revoked refresh token.
-		common.Fail(c, common.CodeUnauthorized)
-		return
-	}
-
 	pair, err := common.GenerateTokenPair(h.cfg.JWT.SigningKey, h.cfg.JWT.AccessTokenTTL, h.cfg.JWT.RefreshTokenTTL, claims.UserID, claims.Username)
 	if err != nil {
 		common.Fail(c, common.CodeInternalError)
 		return
 	}
-	// Rotate: revoke the old refresh token, store the new one.
-	h.rdb.Del(ctx, key)
-	if err := h.rdb.Set(ctx, refreshTokenKeyPrefix+pair.RefreshToken, claims.UserID, h.cfg.JWT.RefreshTokenTTL).Err(); err != nil {
+	oldKey := refreshTokenKey(req.RefreshToken)
+	newKey := refreshTokenKey(pair.RefreshToken)
+	result, err := rotateRefreshTokenScript.Run(
+		ctx,
+		h.rdb,
+		[]string{oldKey, newKey},
+		strconv.FormatUint(claims.UserID, 10),
+		h.cfg.JWT.RefreshTokenTTL.Milliseconds(),
+	).Int()
+	if err != nil {
 		common.Fail(c, common.CodeRedisError)
+		return
+	}
+	if result != 1 {
+		common.Fail(c, common.CodeUnauthorized)
 		return
 	}
 	common.OK(c, pair)
@@ -169,7 +214,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err == nil && req.RefreshToken != "" {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
-		h.rdb.Del(ctx, refreshTokenKeyPrefix+req.RefreshToken)
+		h.rdb.Del(ctx, refreshTokenKey(req.RefreshToken))
 	}
 	common.OK(c, nil)
 }

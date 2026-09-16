@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -44,22 +49,60 @@ func main() {
 		defaultName = "default"
 	}
 	db := dbs[defaultName]
+	defer func() {
+		for name, gormDB := range dbs {
+			sqlDB, err := gormDB.DB()
+			if err == nil {
+				if err := sqlDB.Close(); err != nil {
+					log.Printf("close mysql[%s]: %v", name, err)
+				}
+			}
+		}
+	}()
 
 	rdb, err := database.NewRedis(cfg.Redis)
 	if err != nil {
 		log.Fatalf("redis: %v", err)
 	}
+	defer rdb.Close()
 	if err := database.AutoMigrate(db); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
-	if err := seed.Run(db); err != nil {
+	if err := seed.Run(db, cfg.Bootstrap); err != nil {
 		log.Fatalf("seed: %v", err)
 	}
 
 	r, apiRegistry := router.New(db, rdb, cfg)
 	system.SyncApis(db, apiRegistry)
 	log.Printf("nanyicrm backend listening on :%s (%d mysql connection(s))", cfg.Server.Port, len(dbs))
-	if err := r.Run(":" + cfg.Server.Port); err != nil {
-		log.Fatalf("server: %v", err)
+
+	server := &http.Server{
+		Addr:              ":" + cfg.Server.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	select {
+	case <-signalCtx.Done():
+		log.Printf("shutdown signal received")
+	case err := <-errCh:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server: %v", err)
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("server shutdown: %v", err)
 	}
 }

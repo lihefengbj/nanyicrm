@@ -41,11 +41,38 @@ func (h *DeptHandler) Tree(c *gin.Context) {
 }
 
 type DeptSaveRequest struct {
+	TenantID uint64 `json:"tenantId"`
 	ParentID uint64 `json:"parentId"`
 	Name     string `json:"name" binding:"required,max=64"`
 	Leader   string `json:"leader" binding:"max=64"`
 	Sort     int    `json:"sort"`
-	Status   int8   `json:"status"`
+	Status   int8   `json:"status" binding:"oneof=0 1"`
+}
+
+func (h *DeptHandler) validateParent(c *gin.Context, parentID, tenantID, selfID uint64) bool {
+	seen := map[uint64]struct{}{}
+	for parentID != 0 {
+		if parentID == selfID {
+			common.FailMsg(c, common.CodeParamInvalid, "上级部门不能是自身或子部门")
+			return false
+		}
+		if _, ok := seen[parentID]; ok {
+			common.FailMsg(c, common.CodeParamInvalid, "部门层级存在循环")
+			return false
+		}
+		seen[parentID] = struct{}{}
+		var parent model.SysDept
+		if err := h.db.Select("id", "parent_id", "tenant_id").First(&parent, parentID).Error; err != nil {
+			common.FailMsg(c, common.CodeParamInvalid, "上级部门不存在")
+			return false
+		}
+		if parent.TenantID != tenantID {
+			common.FailMsg(c, common.CodeParamInvalid, "上级部门不属于当前租户")
+			return false
+		}
+		parentID = parent.ParentID
+	}
+	return true
 }
 
 // @Summary  新增部门
@@ -60,10 +87,25 @@ func (h *DeptHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	dept := model.SysDept{TenantID: middleware.CurrentTenantID(c), ParentID: req.ParentID, Name: req.Name, Leader: req.Leader, Sort: req.Sort, Status: req.Status}
-	if dept.Status == 0 {
-		dept.Status = 1
+	tenantID := middleware.CurrentTenantID(c)
+	if middleware.IsPrivileged(c) {
+		tenantID = req.TenantID
 	}
+	if tenantID != 0 {
+		var count int64
+		if err := h.db.Model(&model.SysTenant{}).Where("id = ?", tenantID).Count(&count).Error; err != nil {
+			common.Fail(c, common.CodeDBError)
+			return
+		}
+		if count == 0 {
+			common.Fail(c, common.CodeTenantNotFound)
+			return
+		}
+	}
+	if !h.validateParent(c, req.ParentID, tenantID, 0) {
+		return
+	}
+	dept := model.SysDept{TenantID: tenantID, ParentID: req.ParentID, Name: req.Name, Leader: req.Leader, Sort: req.Sort, Status: req.Status}
 	if err := h.db.Create(&dept).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
@@ -106,8 +148,7 @@ func (h *DeptHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	if req.ParentID == dept.ID {
-		common.FailMsg(c, common.CodeParamInvalid, "上级部门不能是自身")
+	if !h.validateParent(c, req.ParentID, dept.TenantID, dept.ID) {
 		return
 	}
 	dept.ParentID = req.ParentID

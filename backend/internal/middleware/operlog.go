@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/lihefengbj/nanyicrm/backend/internal/common"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
 )
 
@@ -21,6 +22,12 @@ func OperLog(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		module, action := splitModuleAction(c.FullPath())
+		status := c.Writer.Status()
+		if code, ok := c.Get(common.ContextResponseCode); ok {
+			if businessCode, ok := code.(int); ok {
+				status = businessCode
+			}
+		}
 		entry := model.SysOperLog{
 			TenantID:   CurrentTenantID(c),
 			UserID:     CurrentUserID(c),
@@ -30,7 +37,7 @@ func OperLog(db *gorm.DB) gin.HandlerFunc {
 			Method:     method,
 			Path:       c.FullPath(),
 			IP:         c.ClientIP(),
-			Status:     c.Writer.Status(),
+			Status:     status,
 			CostMillis: time.Since(start).Milliseconds(),
 		}
 		if errs := c.Errors.String(); errs != "" {

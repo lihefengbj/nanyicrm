@@ -27,7 +27,13 @@ const props = defineProps<{ menus: Menu[]; base?: string }>()
 // but stay out of the sidebar. Empty dirs collapse away.
 const visibleMenus = computed(() =>
   (props.menus ?? []).filter((m) => {
-    if (m.type === 1) return (m.children ?? []).length > 0
+    if (m.type === 1) {
+      return (m.children ?? []).some((child) =>
+        child.type === 1
+          ? (child.children ?? []).some((nested) => nested.type === 2 && nested.visible === 1)
+          : child.type === 2 && child.visible === 1,
+      )
+    }
     return m.type === 2 && m.visible === 1
   }),
 )

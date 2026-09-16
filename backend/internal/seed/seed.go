@@ -6,12 +6,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
 )
 
 // Run inserts the built-in admin account, admin role, base menus and a root
 // department when they do not exist yet. Safe to call on every boot.
-func Run(db *gorm.DB) error {
+func Run(db *gorm.DB, bootstrap config.BootstrapConfig) error {
 	if err := seedDept(db); err != nil {
 		return err
 	}
@@ -24,10 +25,10 @@ func Run(db *gorm.DB) error {
 	if err := seedSuperAdminRole(db); err != nil {
 		return err
 	}
-	if err := seedAdminUser(db); err != nil {
+	if err := seedAdminUser(db, bootstrap.AdminPassword); err != nil {
 		return err
 	}
-	if err := seedSuperAdminUser(db); err != nil {
+	if err := seedSuperAdminUser(db, bootstrap.SuperAdminPassword); err != nil {
 		return err
 	}
 	if err := ensureTenantMenu(db); err != nil {
@@ -423,7 +424,7 @@ func seedAdminRole(db *gorm.DB) error {
 	return nil
 }
 
-func seedAdminUser(db *gorm.DB) error {
+func seedAdminUser(db *gorm.DB, password string) error {
 	var count int64
 	if err := db.Model(&model.SysUser{}).Where("username = ?", "admin").Count(&count).Error; err != nil {
 		return err
@@ -431,7 +432,7 @@ func seedAdminUser(db *gorm.DB) error {
 	if count > 0 {
 		return nil
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -445,7 +446,7 @@ func seedAdminUser(db *gorm.DB) error {
 		Nickname: "系统管理员",
 		DeptID:   &dept.ID,
 		Status:   1,
-		Remark:   "内置管理员，默认密码 admin123，请登录后立即修改",
+		Remark:   "内置管理员，请登录后立即修改初始密码",
 	}
 	if err := db.Create(&user).Error; err != nil {
 		return err
@@ -457,7 +458,7 @@ func seedAdminUser(db *gorm.DB) error {
 	if err := db.Create(&model.SysUserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
 		return err
 	}
-	log.Println("seed: admin user created (admin / admin123)")
+	log.Println("seed: admin user created")
 	return nil
 }
 
@@ -494,7 +495,7 @@ func seedSuperAdminRole(db *gorm.DB) error {
 
 // seedSuperAdminUser creates the built-in platform super administrator.
 // Idempotent, so existing databases get it on next boot.
-func seedSuperAdminUser(db *gorm.DB) error {
+func seedSuperAdminUser(db *gorm.DB, password string) error {
 	var count int64
 	if err := db.Model(&model.SysUser{}).Where("username = ?", "superAdmin").Count(&count).Error; err != nil {
 		return err
@@ -502,7 +503,7 @@ func seedSuperAdminUser(db *gorm.DB) error {
 	if count > 0 {
 		return nil
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte("superAdmin123"), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -511,7 +512,7 @@ func seedSuperAdminUser(db *gorm.DB) error {
 		PwdHash:  string(hash),
 		Nickname: "超级管理员",
 		Status:   1,
-		Remark:   "内置超级管理员，默认密码 superAdmin123，请登录后立即修改",
+		Remark:   "内置超级管理员，请登录后立即修改初始密码",
 	}
 	if err := db.Create(&user).Error; err != nil {
 		return err
@@ -523,6 +524,6 @@ func seedSuperAdminUser(db *gorm.DB) error {
 	if err := db.Create(&model.SysUserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
 		return err
 	}
-	log.Println("seed: superAdmin user created (superAdmin / superAdmin123)")
+	log.Println("seed: superAdmin user created")
 	return nil
 }

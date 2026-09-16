@@ -43,6 +43,8 @@ services:
       MYSQL_Password: ${MYSQL_Password}
       REDIS_Password: ${REDIS_Password}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${BOOTSTRAP_SUPER_ADMIN_PASSWORD}
     volumes:
       - backend-log:/app/log
     depends_on:
@@ -50,6 +52,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   frontend:
     build: ../frontend
@@ -58,7 +65,13 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 volumes:
   mysql-data:

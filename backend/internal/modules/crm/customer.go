@@ -33,6 +33,11 @@ func (h *CustomerHandler) List(c *gin.Context) {
 	level := strings.TrimSpace(c.Query("level"))
 
 	query := middleware.TenantScope(c, h.db.Model(&model.CrmCustomer{}), "crm_customer")
+	if middleware.IsPrivileged(c) {
+		if tid, err := strconv.ParseUint(c.Query("tenantId"), 10, 64); err == nil && tid > 0 {
+			query = query.Where("crm_customer.tenant_id = ?", tid)
+		}
+	}
 	if name != "" {
 		query = query.Where("name LIKE ?", "%"+name+"%")
 	}
@@ -77,6 +82,11 @@ func (h *CustomerHandler) List(c *gin.Context) {
 func (h *CustomerHandler) All(c *gin.Context) {
 	var customers []model.CrmCustomer
 	query := middleware.TenantScope(c, h.db.Model(&model.CrmCustomer{}), "crm_customer")
+	if middleware.IsPrivileged(c) {
+		if tid, err := strconv.ParseUint(c.Query("tenantId"), 10, 64); err == nil && tid > 0 {
+			query = query.Where("crm_customer.tenant_id = ?", tid)
+		}
+	}
 	if err := query.Select("id", "name").Order("id DESC").Limit(500).Find(&customers).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
@@ -85,35 +95,16 @@ func (h *CustomerHandler) All(c *gin.Context) {
 }
 
 type CustomerSaveRequest struct {
+	TenantID uint64  `json:"tenantId"`
 	Name     string  `json:"name" binding:"required,max=128"`
 	Phone    string  `json:"phone" binding:"max=32"`
 	Source   string  `json:"source" binding:"max=32"`
 	Industry string  `json:"industry" binding:"max=64"`
-	Level    string  `json:"level" binding:"max=8"`
-	Status   int8    `json:"status"`
+	Level    string  `json:"level" binding:"omitempty,oneof=A B C"`
+	Status   int8    `json:"status" binding:"oneof=1 2 3"`
 	OwnerID  *uint64 `json:"ownerId"`
 	Address  string  `json:"address" binding:"max=255"`
 	Remark   string  `json:"remark" binding:"max=255"`
-}
-
-// resolveOwner defaults the owner to the current user and verifies the owner
-// belongs to the same tenant.
-func (h *CustomerHandler) resolveOwner(c *gin.Context, req *CustomerSaveRequest) (*uint64, bool) {
-	ownerID := req.OwnerID
-	if ownerID == nil || *ownerID == 0 {
-		uid := middleware.CurrentUserID(c)
-		ownerID = &uid
-	}
-	var owner model.SysUser
-	if err := h.db.Select("id", "tenant_id").First(&owner, *ownerID).Error; err != nil {
-		common.FailMsg(c, common.CodeParamInvalid, "归属人不存在")
-		return nil, false
-	}
-	if !middleware.IsPrivileged(c) && owner.TenantID != middleware.CurrentTenantID(c) {
-		common.FailMsg(c, common.CodeParamInvalid, "归属人不属于当前租户")
-		return nil, false
-	}
-	return ownerID, true
 }
 
 // @Summary  新增客户
@@ -128,15 +119,16 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	ownerID, ok := h.resolveOwner(c, &req)
+	tenantID, ok := resolveBusinessTenant(c, h.db, req.TenantID, 0)
 	if !ok {
 		return
 	}
-	if req.Status == 0 {
-		req.Status = 1
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, tenantID)
+	if !ok {
+		return
 	}
 	customer := model.CrmCustomer{
-		TenantID: middleware.CurrentTenantID(c),
+		TenantID: tenantID,
 		Name:     req.Name,
 		Phone:    req.Phone,
 		Source:   req.Source,
@@ -189,10 +181,15 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
-	ownerID, ok := h.resolveOwner(c, &req)
+	tenantID, ok := resolveBusinessTenant(c, h.db, req.TenantID, customer.TenantID)
 	if !ok {
 		return
 	}
+	ownerID, ok := resolveOwnerForTenant(c, h.db, req.OwnerID, tenantID)
+	if !ok {
+		return
+	}
+	customer.TenantID = tenantID
 	customer.Name = req.Name
 	customer.Phone = req.Phone
 	customer.Source = req.Source
@@ -201,9 +198,7 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 	customer.OwnerID = ownerID
 	customer.Address = req.Address
 	customer.Remark = req.Remark
-	if req.Status >= 1 && req.Status <= 3 {
-		customer.Status = req.Status
-	}
+	customer.Status = req.Status
 	if err := h.db.Save(customer).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
@@ -225,6 +220,21 @@ func (h *CustomerHandler) Delete(c *gin.Context) {
 	}
 	customer, ok := findCustomerInTenant(c, h.db, id)
 	if !ok {
+		return
+	}
+	var refs int64
+	if err := h.db.Model(&model.CrmOpportunity{}).Where("customer_id = ?", customer.ID).Count(&refs).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	if refs == 0 {
+		if err := h.db.Model(&model.CrmContract{}).Where("customer_id = ?", customer.ID).Count(&refs).Error; err != nil {
+			common.Fail(c, common.CodeDBError)
+			return
+		}
+	}
+	if refs > 0 {
+		common.FailMsg(c, common.CodeParamInvalid, "客户存在商机或合同，不可删除")
 		return
 	}
 	err = h.db.Transaction(func(tx *gorm.DB) error {
