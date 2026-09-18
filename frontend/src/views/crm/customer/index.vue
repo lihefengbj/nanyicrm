@@ -270,6 +270,7 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  getCustomerIntent,
   analyzeCustomerIntent,
   retryCustomerIntent,
   submitCustomerIntentFeedback,
@@ -370,7 +371,10 @@ async function openIntent(row: Customer) {
   intentVisible.value = true
   intentLoading.value = true
   try {
-    intentResult.value = row.intent ?? null
+    // The customer list returns an intent summary for performance. The
+    // detail dialog needs the full structured result (needs, pain points,
+    // budget, risks, etc.), so fetch it only when the dialog is opened.
+    intentResult.value = await getCustomerIntent(row.id)
     const history = await listCustomerIntentHistory(row.id, { pageNum: 1, pageSize: 10 }).catch(() => null)
     intentHistory.value = history?.records ?? []
     latestInputSummary.value = intentHistory.value.find((item) => item.inputSummary)?.inputSummary ?? ''
