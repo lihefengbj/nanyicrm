@@ -15,6 +15,15 @@ redis:
   addr: "redis:6379"
   pwd: "${REDIS_Password}"
   db: 0
+llm:
+  enabled: ${LLM_ENABLED}
+  provider: ${LLM_PROVIDER}
+  base_url: ${LLM_BASE_URL}
+  api_key: "${LLM_API_KEY}"
+  model: ${LLM_MODEL}
+  timeout: 30s
+  max_tokens: 1200
+  temperature: 0.2
 jwt:
   signing_key: "${JWT_SIGNING_KEY}"
   access_ttl: 2h

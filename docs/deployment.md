@@ -31,6 +31,19 @@ curl http://localhost/healthz   # 经前端 nginx 反代
 - 后端日志按天写入容器卷 `backend-log`（`log/server_yyyymmdd.log`，默认保留 30 天）。
 - 前端 nginx 配置见 `frontend/nginx.conf`：静态资源 + `/api/` 反代 + SPA history 回退。
 
+### 开发环境配置
+
+`backend/config/config.yaml` 同样不保存 MySQL/Redis 实际连接信息，启动前请为当前用户配置以下环境变量：
+
+```powershell
+[Environment]::SetEnvironmentVariable("MYSQL_DSN", "用户名:密码@tcp(主机:端口)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local", "User")
+[Environment]::SetEnvironmentVariable("REDIS_ADDR", "主机:端口", "User")
+[Environment]::SetEnvironmentVariable("REDIS_PASSWORD", "Redis密码", "User")
+[Environment]::SetEnvironmentVariable("LLM_API_KEY", "大模型API Key", "User")
+```
+
+设置后需重新打开终端或重启后端进程，配置加载器会自动展开 YAML 中的 `${VAR}` 占位符。生产环境的变量名以 `deploy/.env.example` 和 `backend/config/config.prod.yaml` 为准。
+
 ## 二、手动部署
 
 ### 后端

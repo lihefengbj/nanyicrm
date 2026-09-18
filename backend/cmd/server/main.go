@@ -72,7 +72,7 @@ func main() {
 		log.Fatalf("seed: %v", err)
 	}
 
-	r, apiRegistry := router.New(db, rdb, cfg)
+	r, apiRegistry, intentQueue := router.New(db, rdb, cfg)
 	system.SyncApis(db, apiRegistry)
 	log.Printf("nanyicrm backend listening on :%s (%d mysql connection(s))", cfg.Server.Port, len(dbs))
 
@@ -91,6 +91,9 @@ func main() {
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if intentQueue != nil {
+		go intentQueue.Run(signalCtx)
+	}
 	select {
 	case <-signalCtx.Done():
 		log.Printf("shutdown signal received")

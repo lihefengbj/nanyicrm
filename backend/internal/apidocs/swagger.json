@@ -404,6 +404,75 @@
                 }
             }
         },
+        "/crm/customer/{id}/intent": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:list",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "查询客户当前AI意向",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/{id}/intent/analyze": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:analyze",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "手动分析客户意向",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/{id}/intent/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:history",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "查询客户AI意向分析历史",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/crm/follow": {
             "get": {
                 "security": [

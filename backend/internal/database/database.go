@@ -77,15 +77,24 @@ func NewMySQLAll(cfgs []config.MySQLConfig, debug bool) (map[string]*gorm.DB, er
 }
 
 func NewRedis(cfg config.RedisConfig) (*redis.Client, error) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Pwd,
-		DB:       cfg.DB,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("connect redis: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     cfg.Addr,
+			Password: cfg.Pwd,
+			DB:       cfg.DB,
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := rdb.Ping(ctx).Err()
+		cancel()
+		if err == nil {
+			return rdb, nil
+		}
+		lastErr = err
+		_ = rdb.Close()
+		if attempt < 5 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
 	}
-	return rdb, nil
+	return nil, fmt.Errorf("connect redis after retries: %w", lastErr)
 }

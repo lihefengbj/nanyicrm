@@ -9,6 +9,8 @@ import type {
   Contract,
   ContractSavePayload,
   DashboardSummary,
+  CustomerIntent,
+  CustomerIntentHistory,
   Opportunity,
   OpportunitySavePayload,
   PageQuery,
@@ -30,6 +32,15 @@ export function updateCustomer(id: number, data: CustomerSavePayload) {
 }
 export function deleteCustomer(id: number) {
   return del<void>(`/crm/customer/${id}`)
+}
+export function getCustomerIntent(id: number) {
+  return get<CustomerIntent | null>(`/crm/customer/${id}/intent`)
+}
+export function analyzeCustomerIntent(id: number) {
+  return post<CustomerIntent>(`/crm/customer/${id}/intent/analyze`)
+}
+export function listCustomerIntentHistory(id: number, query: PageQuery) {
+  return get<PageResult<CustomerIntentHistory>>(`/crm/customer/${id}/intent/history`, { ...query })
 }
 
 // ---- contact ----

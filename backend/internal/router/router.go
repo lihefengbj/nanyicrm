@@ -13,6 +13,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
+	"github.com/lihefengbj/nanyicrm/backend/internal/ai"
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/crm"
@@ -67,7 +68,7 @@ func handlerName(h gin.HandlerFunc) string {
 // New builds the Gin engine and returns it together with the API registry
 // collected during wiring. main.go passes the registry to system.SyncApis
 // once the database is ready.
-func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry) {
+func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry, *crm.IntentQueue) {
 	r := gin.New()
 	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
 		panic("invalid trusted proxies: " + err.Error())
@@ -172,7 +173,19 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("PUT", "/crm/contact/:id", "crm:contact:update", contact.Update)
 	a.perm("DELETE", "/crm/contact/:id", "crm:contact:delete", contact.Delete)
 
-	follow := crm.NewFollowUpHandler(db)
+	var intentProvider ai.Provider
+	if cfg.LLM.Enabled {
+		intentProvider = ai.NewProvider(cfg.LLM)
+	}
+	intent := crm.NewIntentHandler(db, cfg.LLM.Enabled, intentProvider)
+	var intentQueue *crm.IntentQueue
+	var enqueueIntent crm.IntentEnqueuer
+	if cfg.LLM.Enabled {
+		intentQueue = crm.NewIntentQueue(rdb, intent)
+		enqueueIntent = intentQueue.Enqueue
+	}
+
+	follow := crm.NewFollowUpHandler(db, enqueueIntent)
 	a.perm("GET", "/crm/follow", "crm:follow:list", follow.List)
 	a.perm("POST", "/crm/follow", "crm:follow:create", follow.Create)
 	a.perm("PUT", "/crm/follow/:id", "crm:follow:update", follow.Update)
@@ -191,8 +204,12 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("PUT", "/crm/contract/:id", "crm:contract:update", contract.Update)
 	a.perm("DELETE", "/crm/contract/:id", "crm:contract:delete", contract.Delete)
 
+	a.perm("GET", "/crm/customer/:id/intent", "crm:intent:list", intent.Current)
+	a.perm("GET", "/crm/customer/:id/intent/history", "crm:intent:history", intent.History)
+	a.perm("POST", "/crm/customer/:id/intent/analyze", "crm:intent:analyze", intent.Analyze)
+
 	dashboard := crm.NewDashboardHandler(db)
 	a.open("GET", "/dashboard/summary", dashboard.Summary)
 
-	return r, registry
+	return r, registry, intentQueue
 }

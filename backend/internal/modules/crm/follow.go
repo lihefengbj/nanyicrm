@@ -1,6 +1,8 @@
 package crm
 
 import (
+	"context"
+	"log"
 	"strconv"
 	"time"
 
@@ -13,11 +15,16 @@ import (
 )
 
 type FollowUpHandler struct {
-	db *gorm.DB
+	db            *gorm.DB
+	enqueueIntent IntentEnqueuer
 }
 
-func NewFollowUpHandler(db *gorm.DB) *FollowUpHandler {
-	return &FollowUpHandler{db: db}
+func NewFollowUpHandler(db *gorm.DB, enqueue ...IntentEnqueuer) *FollowUpHandler {
+	var enqueueIntent IntentEnqueuer
+	if len(enqueue) > 0 {
+		enqueueIntent = enqueue[0]
+	}
+	return &FollowUpHandler{db: db, enqueueIntent: enqueueIntent}
 }
 
 // @Summary  跟进记录分页列表
@@ -111,6 +118,7 @@ func (h *FollowUpHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
+	h.enqueue(follow.TenantID, follow.CustomerID, follow.CreatorID)
 	common.OK(c, gin.H{"id": follow.ID})
 }
 
@@ -164,6 +172,7 @@ func (h *FollowUpHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
+	h.enqueue(follow.TenantID, follow.CustomerID, follow.CreatorID)
 	common.OK(c, nil)
 }
 
@@ -188,4 +197,15 @@ func (h *FollowUpHandler) Delete(c *gin.Context) {
 		return
 	}
 	common.OK(c, nil)
+}
+
+func (h *FollowUpHandler) enqueue(tenantID, customerID, userID uint64) {
+	if h.enqueueIntent == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := h.enqueueIntent(ctx, tenantID, customerID, userID); err != nil {
+		log.Printf("enqueue customer intent tenant=%d customer=%d: %v", tenantID, customerID, err)
+	}
 }

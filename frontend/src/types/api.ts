@@ -219,6 +219,7 @@ export interface Customer {
   address: string
   remark: string
   createdAt: string
+  intent?: CustomerIntent | null
 }
 
 export interface CustomerSavePayload {
@@ -279,6 +280,46 @@ export interface FollowUpSavePayload {
   type: number
   content: string
   nextAt?: string
+}
+
+export interface CustomerIntent {
+  id: number
+  tenantId: number
+  customerId: number
+  intentLevel: 'high' | 'medium' | 'low' | 'unknown'
+  intentScore?: number
+  confidence?: number
+  summary: string
+  needs: string[]
+  painPoints: string[]
+  budget: string
+  purchaseTimeline: string
+  decisionRole: string
+  risks: string[]
+  nextAction: string
+  suggestedNextAt?: string
+  analyzedAt: string
+  provider: string
+  model: string
+  promptVersion: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomerIntentHistory {
+  id: number
+  customerId: number
+  triggerUserId: number
+  result?: CustomerIntent | null
+  status: string
+  errorMessage: string
+  provider: string
+  model: string
+  promptVersion: string
+  costMillis: number
+  analyzedAt?: string
+  createdAt: string
 }
 
 // ---- sales ----

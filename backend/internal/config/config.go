@@ -16,6 +16,7 @@ type Config struct {
 	MySQL     []MySQLConfig   `yaml:"mysql"`
 	Redis     RedisConfig     `yaml:"redis"`
 	JWT       JWTConfig       `yaml:"jwt"`
+	LLM       LLMConfig       `yaml:"llm"`
 	Log       LogConfig       `yaml:"log"`
 	Bootstrap BootstrapConfig `yaml:"bootstrap"`
 }
@@ -51,6 +52,18 @@ type JWTConfig struct {
 	// raw string forms as written in the yaml file, e.g. "2h"
 	AccessTTL  string `yaml:"access_ttl"`
 	RefreshTTL string `yaml:"refresh_ttl"`
+}
+
+type LLMConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	Provider    string        `yaml:"provider"`
+	BaseURL     string        `yaml:"base_url"`
+	APIKey      string        `yaml:"api_key"`
+	Model       string        `yaml:"model"`
+	Timeout     time.Duration `yaml:"-"`
+	TimeoutText string        `yaml:"timeout"`
+	MaxTokens   int           `yaml:"max_tokens"`
+	Temperature float32       `yaml:"temperature"`
 }
 
 type LogConfig struct {
@@ -95,7 +108,13 @@ func defaults() *Config {
 			TrustedProxies: []string{"127.0.0.1", "::1"},
 		},
 		Redis: RedisConfig{Addr: "127.0.0.1:6379"},
-		Log:   LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
+		LLM: LLMConfig{
+			Provider:    "openai-compatible",
+			TimeoutText: "30s",
+			MaxTokens:   1200,
+			Temperature: 0.2,
+		},
+		Log: LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
 		Bootstrap: BootstrapConfig{
 			AdminPassword:      "admin123",
 			SuperAdminPassword: "superAdmin123",
@@ -130,6 +149,19 @@ func (c *Config) applyDefaults() {
 	}
 	c.JWT.AccessTokenTTL = parseDuration(c.JWT.AccessTTL, 2*time.Hour)
 	c.JWT.RefreshTokenTTL = parseDuration(c.JWT.RefreshTTL, 7*24*time.Hour)
+	if c.LLM.Provider == "" {
+		c.LLM.Provider = "openai-compatible"
+	}
+	c.LLM.Timeout = parseDuration(c.LLM.TimeoutText, 30*time.Second)
+	if c.LLM.MaxTokens <= 0 {
+		c.LLM.MaxTokens = 1200
+	}
+	if c.LLM.Temperature < 0 {
+		c.LLM.Temperature = 0
+	}
+	if c.LLM.Temperature > 2 {
+		c.LLM.Temperature = 2
+	}
 	if c.Log.Dir == "" {
 		c.Log.Dir = "log"
 	}

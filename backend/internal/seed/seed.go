@@ -37,6 +37,9 @@ func Run(db *gorm.DB, bootstrap config.BootstrapConfig) error {
 	if err := ensureCrmMenus(db); err != nil {
 		return err
 	}
+	if err := ensureIntentMenus(db); err != nil {
+		return err
+	}
 	if err := ensureSalesMenus(db); err != nil {
 		return err
 	}
@@ -49,6 +52,52 @@ func Run(db *gorm.DB, bootstrap config.BootstrapConfig) error {
 	if err := ensureApiMenu(db); err != nil {
 		return err
 	}
+	return nil
+}
+
+// ensureIntentMenus adds AI customer-intent permissions under the existing
+// customer page. The feature is exposed as page actions rather than a
+// separate menu because the result belongs in the customer workflow.
+func ensureIntentMenus(db *gorm.DB) error {
+	var customerMenu model.SysMenu
+	if err := db.Where("perms = ? AND type = 2", "crm:customer:list").First(&customerMenu).Error; err != nil {
+		return nil
+	}
+	buttons := []model.SysMenu{
+		{ParentID: customerMenu.ID, Title: "查看AI意向", Type: 3, Perms: "crm:intent:list", Sort: 10, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "分析客户意向", Type: 3, Perms: "crm:intent:analyze", Sort: 11, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "查看分析历史", Type: 3, Perms: "crm:intent:history", Sort: 12, Visible: 1, Status: 1},
+	}
+	var grant []model.SysMenu
+	for _, button := range buttons {
+		var count int64
+		if err := db.Model(&model.SysMenu{}).Where("perms = ?", button.Perms).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			if err := db.Create(&button).Error; err != nil {
+				return err
+			}
+			grant = append(grant, button)
+		}
+	}
+	if len(grant) == 0 {
+		return nil
+	}
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			continue
+		}
+		links := make([]model.SysRoleMenu, 0, len(grant))
+		for _, menu := range grant {
+			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: menu.ID})
+		}
+		if err := db.Create(&links).Error; err != nil {
+			return err
+		}
+	}
+	log.Println("seed: customer intent permissions created")
 	return nil
 }
 

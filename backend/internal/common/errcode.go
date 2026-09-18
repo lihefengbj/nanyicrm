@@ -28,6 +28,7 @@ const (
 	CodeInternalError = 5001
 	CodeDBError       = 5002
 	CodeRedisError    = 5003
+	CodeAIUnavailable = 5004
 )
 
 var codeMessages = map[int]string{
@@ -57,6 +58,7 @@ var codeMessages = map[int]string{
 	CodeInternalError: "系统内部错误",
 	CodeDBError:       "数据库操作失败",
 	CodeRedisError:    "缓存服务异常",
+	CodeAIUnavailable: "AI分析服务暂不可用",
 }
 
 func CodeMessage(code int) string {

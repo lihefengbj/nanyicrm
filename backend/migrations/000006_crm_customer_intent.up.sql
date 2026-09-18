@@ -1,0 +1,58 @@
+-- AI customer intent snapshots and analysis history.
+-- Mirrors internal/model; keep both in sync when changing these tables.
+
+CREATE TABLE IF NOT EXISTS crm_customer_intent (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  created_at DATETIME(3) NULL,
+  updated_at DATETIME(3) NULL,
+  deleted_at DATETIME(3) NULL,
+  tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  intent_level VARCHAR(16) NOT NULL,
+  intent_score INT NULL,
+  confidence DECIMAL(6,5) NULL,
+  summary TEXT NULL,
+  needs TEXT NULL,
+  pain_points TEXT NULL,
+  budget VARCHAR(255) NULL,
+  purchase_timeline VARCHAR(255) NULL,
+  decision_role VARCHAR(255) NULL,
+  risks TEXT NULL,
+  next_action TEXT NULL,
+  suggested_next_at DATETIME(3) NULL,
+  analyzed_at DATETIME(3) NOT NULL,
+  provider VARCHAR(64) NULL,
+  model VARCHAR(128) NULL,
+  prompt_version VARCHAR(32) NULL,
+  status VARCHAR(16) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_customer_intent_customer (tenant_id, customer_id),
+  KEY idx_customer_intent_tenant_id (tenant_id),
+  KEY idx_customer_intent_level (intent_level),
+  KEY idx_customer_intent_status (status),
+  KEY idx_customer_intent_deleted_at (deleted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS crm_customer_intent_analysis (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  created_at DATETIME(3) NULL,
+  updated_at DATETIME(3) NULL,
+  deleted_at DATETIME(3) NULL,
+  tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  trigger_user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  input_snapshot TEXT NULL,
+  result_snapshot TEXT NULL,
+  status VARCHAR(16) NOT NULL,
+  error_message VARCHAR(1024) NULL,
+  provider VARCHAR(64) NULL,
+  model VARCHAR(128) NULL,
+  prompt_version VARCHAR(32) NULL,
+  cost_millis BIGINT NOT NULL DEFAULT 0,
+  analyzed_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  KEY idx_customer_intent_analysis_tenant_id (tenant_id),
+  KEY idx_customer_intent_analysis_customer_id (customer_id),
+  KEY idx_customer_intent_analysis_status (status),
+  KEY idx_customer_intent_analysis_deleted_at (deleted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

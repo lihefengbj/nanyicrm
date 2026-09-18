@@ -270,6 +270,48 @@ paths:
       summary: 编辑客户
       tags:
       - CRM-客户
+  /crm/customer/{id}/intent:
+    get:
+      description: 需要权限：crm:intent:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询客户当前AI意向
+      tags:
+      - CRM-客户意向
+  /crm/customer/{id}/intent/analyze:
+    post:
+      description: 需要权限：crm:intent:analyze
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 手动分析客户意向
+      tags:
+      - CRM-客户意向
+  /crm/customer/{id}/intent/history:
+    get:
+      description: 需要权限：crm:intent:history
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询客户AI意向分析历史
+      tags:
+      - CRM-客户意向
   /crm/customer/all:
     get:
       description: 需要权限：crm:customer:list

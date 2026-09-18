@@ -18,14 +18,24 @@ server:
 # The connection named "default" is used for auto-migrate, seed and business data.
 mysql:
   - name: default
-    dsn: "root:7ujm8ik,@tcp(43.133.253.241:13306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local"
+    dsn: "${MYSQL_DSN}"
   # - name: report
   #   dsn: "user:pwd@tcp(127.0.0.1:3306)/report?charset=utf8mb4&parseTime=True&loc=Local"
 
 redis:
-  addr: "43.133.253.241:26739"
-  pwd: "6eNpKGpS4i2E6Dda"
+  addr: "${REDIS_ADDR}"
+  pwd: "${REDIS_PASSWORD}"
   db: 0
+
+llm:
+  enabled: true
+  provider: deepseek
+  base_url: "https://api.deepseek.com"
+  api_key: "${LLM_API_KEY}"
+  model: "deepseek-flash"
+  timeout: 30s
+  max_tokens: 1200
+  temperature: 0.2
 
 jwt:
   signing_key: "nanyicrm-dev-signing-key-change-me"   # change in production!
