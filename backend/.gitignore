@@ -5,5 +5,5 @@ coverage.txt
 .env
 .idea/
 
-server.*.log
+server*.log
 log/
