@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
 const (
@@ -36,13 +38,14 @@ type IntentEnqueuer func(ctx context.Context, tenantID, customerID, triggerUserI
 type IntentQueue struct {
 	rdb      *redis.Client
 	handler  *IntentHandler
+	quota    *quota.Service
 	consumer string
 }
 
-func NewIntentQueue(rdb *redis.Client, handler *IntentHandler) *IntentQueue {
+func NewIntentQueue(rdb *redis.Client, handler *IntentHandler, quotaSvc *quota.Service) *IntentQueue {
 	hostname, _ := os.Hostname()
 	consumer := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano())
-	return &IntentQueue{rdb: rdb, handler: handler, consumer: consumer}
+	return &IntentQueue{rdb: rdb, handler: handler, quota: quotaSvc, consumer: consumer}
 }
 
 func (q *IntentQueue) Enqueue(ctx context.Context, tenantID, customerID, triggerUserID uint64) error {
@@ -56,6 +59,21 @@ func (q *IntentQueue) Enqueue(ctx context.Context, tenantID, customerID, trigger
 	}
 	if !created {
 		return nil
+	}
+	// This path is a best-effort side effect of saving a follow-up: the
+	// follow-up itself must never fail because of quota. Skip creating a new
+	// task when the tenant already reached a ceiling and log it instead.
+	if q.quota != nil {
+		if err := q.quota.CheckSubmission(ctx, tenantID, 1); err != nil {
+			var exceeded *quota.ExceededError
+			if errors.As(err, &exceeded) {
+				_ = q.rdb.Del(ctx, dedupKey).Err()
+				log.Printf("skip customer intent enqueue tenant=%d customer=%d: %v", tenantID, customerID, err)
+				return nil
+			}
+			_ = q.rdb.Del(ctx, dedupKey).Err()
+			return err
+		}
 	}
 	task := IntentTask{
 		TenantID:      tenantID,

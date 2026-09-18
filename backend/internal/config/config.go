@@ -69,6 +69,15 @@ type LLMConfig struct {
 	ConfigVersion  string        `yaml:"config_version"`
 	ResponseFormat string        `yaml:"response_format"`
 	ThinkingMode   string        `yaml:"thinking_mode"`
+	Quota          QuotaConfig   `yaml:"quota"`
+}
+
+// QuotaConfig holds platform-level default AI intent quotas. A value of 0
+// means "no limit"; each tenant may override these via sys_tenant columns.
+type QuotaConfig struct {
+	DailyCalls  int64 `yaml:"daily_calls"`  // per-tenant daily analysis count limit
+	DailyTokens int64 `yaml:"daily_tokens"` // per-tenant daily provider token usage limit
+	Concurrency int64 `yaml:"concurrency"`  // per-tenant concurrent in-flight analyses
 }
 
 type LogConfig struct {
@@ -120,6 +129,11 @@ func defaults() *Config {
 			Temperature:    0.2,
 			ConfigVersion:  "v1",
 			ResponseFormat: "json_object",
+			Quota: QuotaConfig{
+				DailyCalls:  1000,
+				DailyTokens: 2000000,
+				Concurrency: 5,
+			},
 		},
 		Log: LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
 		Bootstrap: BootstrapConfig{
@@ -174,6 +188,17 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LLM.Temperature > 2 {
 		c.LLM.Temperature = 2
+	}
+	// Negative quotas are configuration errors; treat them as "no limit"
+	// instead of failing startup for a local development config.
+	if c.LLM.Quota.DailyCalls < 0 {
+		c.LLM.Quota.DailyCalls = 0
+	}
+	if c.LLM.Quota.DailyTokens < 0 {
+		c.LLM.Quota.DailyTokens = 0
+	}
+	if c.LLM.Quota.Concurrency < 0 {
+		c.LLM.Quota.Concurrency = 0
 	}
 	if c.Log.Dir == "" {
 		c.Log.Dir = "log"

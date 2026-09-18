@@ -21,6 +21,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/common"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
 const (
@@ -100,14 +101,48 @@ type IntentHandler struct {
 	enabled      bool
 	provider     ai.Provider
 	taskEnqueuer func(context.Context, IntentTask) error
+	quota        *quota.Service
 }
 
-func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider) *IntentHandler {
-	return &IntentHandler{db: db, enabled: enabled, provider: provider}
+func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider, quotaSvc *quota.Service) *IntentHandler {
+	return &IntentHandler{db: db, enabled: enabled, provider: provider, quota: quotaSvc}
 }
 
 func (h *IntentHandler) SetTaskEnqueuer(enqueuer func(context.Context, IntentTask) error) {
 	h.taskEnqueuer = enqueuer
+}
+
+// checkQuota rejects creating new analysis tasks when the tenant already met
+// a daily or concurrency ceiling. It writes the response and reports whether
+// the submission may proceed.
+func (h *IntentHandler) checkQuota(c *gin.Context, tenantID uint64, extraCalls int64) bool {
+	if h.quota == nil {
+		return true
+	}
+	if err := h.quota.CheckSubmission(c.Request.Context(), tenantID, extraCalls); err != nil {
+		var exceeded *quota.ExceededError
+		if errors.As(err, &exceeded) {
+			common.FailMsg(c, common.CodeQuotaExceeded, err.Error())
+		} else {
+			common.Fail(c, common.CodeInternalError)
+		}
+		return false
+	}
+	return true
+}
+
+// failIntentError maps an analysis error to an HTTP response.
+func failIntentError(c *gin.Context, err error) {
+	var exceeded *quota.ExceededError
+	if errors.As(err, &exceeded) {
+		common.FailMsg(c, common.CodeQuotaExceeded, err.Error())
+		return
+	}
+	if errors.Is(err, ErrIntentAnalysisUnavailable) {
+		common.Fail(c, common.CodeAIUnavailable)
+		return
+	}
+	common.Fail(c, common.CodeDBError)
 }
 
 type IntentResponse struct {
@@ -288,14 +323,13 @@ func (h *IntentHandler) Analyze(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !h.checkQuota(c, customer.TenantID, 1) {
+		return
+	}
 	intent, err := h.analyzeCustomer(c.Request.Context(), customer, middleware.CurrentUserID(c))
 	if err != nil {
 		logIntentAnalysisError("manual", customer, err)
-		if errors.Is(err, ErrIntentAnalysisUnavailable) {
-			common.Fail(c, common.CodeAIUnavailable)
-		} else {
-			common.Fail(c, common.CodeDBError)
-		}
+		failIntentError(c, err)
 		return
 	}
 	common.OK(c, h.toResponse(intent))
@@ -312,14 +346,13 @@ func (h *IntentHandler) Retry(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !h.checkQuota(c, customer.TenantID, 1) {
+		return
+	}
 	intent, err := h.analyzeCustomer(c.Request.Context(), customer, middleware.CurrentUserID(c))
 	if err != nil {
 		logIntentAnalysisError("retry", customer, err)
-		if errors.Is(err, ErrIntentAnalysisUnavailable) {
-			common.Fail(c, common.CodeAIUnavailable)
-		} else {
-			common.Fail(c, common.CodeDBError)
-		}
+		failIntentError(c, err)
 		return
 	}
 	common.OK(c, h.toResponse(intent))
@@ -529,6 +562,18 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	if !h.enabled || h.provider == nil {
 		return nil, ErrIntentAnalysisUnavailable
 	}
+	if h.quota != nil {
+		// Hard ceiling enforced at execution time so tasks enqueued before the
+		// limit was hit cannot overshoot it. The error is non-retryable: quota
+		// exhaustion is not transient.
+		if err := h.quota.ReserveCall(ctx, customer.TenantID); err != nil {
+			var exceeded *quota.ExceededError
+			if errors.As(err, &exceeded) {
+				return nil, &intentAnalysisError{errorType: ai.ErrorTypeQuotaExceeded, retryable: false, cause: err}
+			}
+			return nil, err
+		}
+	}
 	input, err := h.buildInput(customer)
 	if err != nil {
 		return nil, fmt.Errorf("build intent input: %w", err)
@@ -585,6 +630,11 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	history.OutputTokens = analysis.Metadata.OutputTokens
 	history.TotalTokens = analysis.Metadata.TotalTokens
 	history.ProviderRequestID = analysis.Metadata.RequestID
+	// Token accounting happens even when result validation fails below: the
+	// provider billed the call regardless.
+	if h.quota != nil {
+		h.quota.AddTokens(ctx, customer.TenantID, int64(analysis.Metadata.TotalTokens))
+	}
 	if err := validateIntentResult(result); err != nil {
 		history.Status = intentStatusFailed
 		history.ErrorType = ai.ErrorTypeResultValidation

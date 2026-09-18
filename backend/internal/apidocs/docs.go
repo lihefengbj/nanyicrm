@@ -28,7 +28,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_modules_system.LoginRequest"
+                            "$ref": "#/definitions/system.LoginRequest"
                         }
                     }
                 ],
@@ -36,7 +36,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair"
+                            "$ref": "#/definitions/common.TokenPair"
                         }
                     }
                 }
@@ -59,7 +59,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/internal_modules_system.RefreshRequest"
+                            "$ref": "#/definitions/system.RefreshRequest"
                         }
                     }
                 ],
@@ -109,7 +109,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_modules_system.RefreshRequest"
+                            "$ref": "#/definitions/system.RefreshRequest"
                         }
                     }
                 ],
@@ -117,7 +117,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair"
+                            "$ref": "#/definitions/common.TokenPair"
                         }
                     }
                 }
@@ -549,6 +549,27 @@ const docTemplate = `{
             }
         },
         "/crm/customer/{id}/intent/feedback": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:feedback 或 crm:intent:feedback:list",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "查询客户AI意向反馈历史",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -694,6 +715,29 @@ const docTemplate = `{
                     "CRM-跟进"
                 ],
                 "summary": "删除跟进记录（仅本人）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/intent/config/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "仅管理员可用；需要权限：crm:intent:config",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "测试AI意向模型配置",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1012,7 +1056,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_modules_system.ApiUpdateTitleRequest"
+                            "$ref": "#/definitions/system.ApiUpdateTitleRequest"
                         }
                     }
                 ],
@@ -1653,6 +1697,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/system/tenant/{id}/quota/reset": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：平台超管",
+                "tags": [
+                    "系统管理-租户"
+                ],
+                "summary": "重置租户今日AI额度用量",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/user": {
             "get": {
                 "security": [
@@ -1743,7 +1810,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair": {
+        "common.TokenPair": {
             "type": "object",
             "properties": {
                 "accessToken": {
@@ -1758,7 +1825,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_modules_system.ApiUpdateTitleRequest": {
+        "system.ApiUpdateTitleRequest": {
             "type": "object",
             "properties": {
                 "title": {
@@ -1767,7 +1834,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_modules_system.LoginRequest": {
+        "system.LoginRequest": {
             "type": "object",
             "required": [
                 "pwd",
@@ -1782,7 +1849,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_modules_system.RefreshRequest": {
+        "system.RefreshRequest": {
             "type": "object",
             "required": [
                 "refreshToken"

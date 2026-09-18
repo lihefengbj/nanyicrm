@@ -46,7 +46,7 @@ func TestIntentConfigTestSuccess(t *testing.T) {
 				AdapterVersion: "test-adapter",
 			},
 		},
-	})
+	}, nil)
 
 	response := performIntentConfigTest(handler)
 	if response.Code != common.CodeSuccess {
@@ -68,7 +68,7 @@ func TestIntentConfigTestReturnsSafeErrorClassification(t *testing.T) {
 			Retryable: false,
 			Err:       errors.New("provider response containing sensitive diagnostic"),
 		},
-	})
+	}, nil)
 
 	response := performIntentConfigTest(handler)
 	if response.Code != common.CodeSuccess {
@@ -84,7 +84,7 @@ func TestIntentConfigTestReturnsSafeErrorClassification(t *testing.T) {
 
 func TestIntentConfigTestDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	response := performIntentConfigTest(NewIntentHandler(nil, false, nil))
+	response := performIntentConfigTest(NewIntentHandler(nil, false, nil, nil))
 	if response.Data.Available || response.Data.ErrorType != ai.ErrorTypeConfig {
 		t.Fatalf("unexpected response: %+v", response.Data)
 	}

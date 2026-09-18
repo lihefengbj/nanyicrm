@@ -83,6 +83,11 @@ func (h *IntentHandler) Batch(c *gin.Context) {
 		}
 		return
 	}
+	// Stop creating new batch tasks once the tenant's daily ceiling would be
+	// crossed by this submission.
+	if !h.checkQuota(c, tenantID, int64(len(ids))) {
+		return
+	}
 	now := time.Now()
 	task := model.CrmCustomerIntentTask{
 		TenantID:     tenantID,

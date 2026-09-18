@@ -11,14 +11,34 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/common"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
 type TenantHandler struct {
-	db *gorm.DB
+	db    *gorm.DB
+	quota *quota.Service
 }
 
-func NewTenantHandler(db *gorm.DB) *TenantHandler {
-	return &TenantHandler{db: db}
+// NewTenantHandler builds a tenant handler. The quota service is optional;
+// without it, list rows carry no usage information.
+func NewTenantHandler(db *gorm.DB, quotaSvc ...*quota.Service) *TenantHandler {
+	var quotaService *quota.Service
+	if len(quotaSvc) > 0 {
+		quotaService = quotaSvc[0]
+	}
+	return &TenantHandler{db: db, quota: quotaService}
+}
+
+// tenantListItem enriches a tenant row with AI intent quota limits and
+// today's usage for the platform admin's quota overview.
+type tenantListItem struct {
+	model.SysTenant
+	EffectiveDailyCalls  int64 `json:"effectiveDailyCalls"`
+	EffectiveDailyTokens int64 `json:"effectiveDailyTokens"`
+	EffectiveConcurrency int64 `json:"effectiveConcurrency"`
+	UsedCalls            int64 `json:"usedCalls"`
+	UsedTokens           int64 `json:"usedTokens"`
+	Running              int64 `json:"running"`
 }
 
 // @Summary  租户分页列表
@@ -52,7 +72,34 @@ func (h *TenantHandler) List(c *gin.Context) {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
-	common.OKPage(c, tenants, total, page.PageNum, page.PageSize)
+	rows := make([]tenantListItem, 0, len(tenants))
+	for i := range tenants {
+		row := tenantListItem{SysTenant: tenants[i]}
+		if h.quota != nil {
+			limits, err := h.quota.LimitsOf(c.Request.Context(), tenants[i].ID)
+			if err != nil {
+				common.Fail(c, common.CodeDBError)
+				return
+			}
+			row.EffectiveDailyCalls = limits.DailyCalls
+			row.EffectiveDailyTokens = limits.DailyTokens
+			row.EffectiveConcurrency = limits.Concurrency
+			calls, tokens, err := h.quota.Usage(c.Request.Context(), tenants[i].ID)
+			if err != nil {
+				common.Fail(c, common.CodeRedisError)
+				return
+			}
+			row.UsedCalls, row.UsedTokens = calls, tokens
+			running, err := h.quota.RunningCount(c.Request.Context(), tenants[i].ID)
+			if err != nil {
+				common.Fail(c, common.CodeDBError)
+				return
+			}
+			row.Running = running
+		}
+		rows = append(rows, row)
+	}
+	common.OKPage(c, rows, total, page.PageNum, page.PageSize)
 }
 
 // All returns enabled tenants for selectors (e.g. super admin's user form).
@@ -79,6 +126,21 @@ type TenantSaveRequest struct {
 	ExpireAt string `json:"expireAt"` // RFC3339 date or "" for never
 	Status   int8   `json:"status" binding:"oneof=0 1"`
 	Remark   string `json:"remark" binding:"max=255"`
+	// AI intent quota overrides. Missing (nil) inherits the platform default,
+	// 0 means "no limit".
+	AIDailyCalls  *int64 `json:"aiDailyCalls"`
+	AIDailyTokens *int64 `json:"aiDailyTokens"`
+	AIConcurrency *int64 `json:"aiConcurrency"`
+}
+
+// validateQuota rejects negative quota overrides.
+func validateQuota(req *TenantSaveRequest) bool {
+	for _, value := range []*int64{req.AIDailyCalls, req.AIDailyTokens, req.AIConcurrency} {
+		if value != nil && *value < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func parseExpireAt(s string) (*time.Time, error) {
@@ -114,6 +176,10 @@ func (h *TenantHandler) Create(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
+	if !validateQuota(&req) {
+		common.FailMsg(c, common.CodeParamInvalid, "AI额度配置不能为负数")
+		return
+	}
 	expireAt, err := parseExpireAt(req.ExpireAt)
 	if err != nil {
 		common.FailMsg(c, common.CodeParamInvalid, "过期时间格式应为 YYYY-MM-DD")
@@ -128,6 +194,7 @@ func (h *TenantHandler) Create(c *gin.Context) {
 	tenant := model.SysTenant{
 		Code: req.Code, Name: req.Name, Contact: req.Contact, Phone: req.Phone,
 		ExpireAt: expireAt, Status: req.Status, Remark: req.Remark,
+		AIDailyCalls: req.AIDailyCalls, AIDailyTokens: req.AIDailyTokens, AIConcurrency: req.AIConcurrency,
 	}
 	if err := h.db.Create(&tenant).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
@@ -158,6 +225,10 @@ func (h *TenantHandler) Update(c *gin.Context) {
 		common.Fail(c, common.CodeParamInvalid)
 		return
 	}
+	if !validateQuota(&req) {
+		common.FailMsg(c, common.CodeParamInvalid, "AI额度配置不能为负数")
+		return
+	}
 	expireAt, err := parseExpireAt(req.ExpireAt)
 	if err != nil {
 		common.FailMsg(c, common.CodeParamInvalid, "过期时间格式应为 YYYY-MM-DD")
@@ -174,11 +245,43 @@ func (h *TenantHandler) Update(c *gin.Context) {
 	tenant.Code, tenant.Name = req.Code, req.Name
 	tenant.Contact, tenant.Phone = req.Contact, req.Phone
 	tenant.ExpireAt, tenant.Remark = expireAt, req.Remark
+	tenant.AIDailyCalls, tenant.AIDailyTokens, tenant.AIConcurrency =
+		req.AIDailyCalls, req.AIDailyTokens, req.AIConcurrency
 	if req.Status == 0 || req.Status == 1 {
 		tenant.Status = req.Status
 	}
 	if err := h.db.Save(&tenant).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
+		return
+	}
+	common.OK(c, nil)
+}
+
+// ResetQuota clears today's AI intent usage counters for a tenant so it can
+// keep submitting analyses after an agreed quota raise or a misconfiguration.
+// @Summary  重置租户今日AI额度用量
+// @Tags     系统管理-租户
+// @Description 需要权限：平台超管
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /system/tenant/{id}/quota/reset [post]
+func (h *TenantHandler) ResetQuota(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		common.Fail(c, common.CodeParamInvalid)
+		return
+	}
+	var tenant model.SysTenant
+	if err := h.db.First(&tenant, id).Error; err != nil {
+		common.Fail(c, common.CodeTenantNotFound)
+		return
+	}
+	if h.quota == nil {
+		common.Fail(c, common.CodeInternalError)
+		return
+	}
+	if err := h.quota.ResetToday(c.Request.Context(), tenant.ID); err != nil {
+		common.Fail(c, common.CodeRedisError)
 		return
 	}
 	common.OK(c, nil)

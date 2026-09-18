@@ -115,6 +115,9 @@ export function updateTenant(id: number, data: TenantSavePayload) {
 export function deleteTenant(id: number) {
   return del<void>(`/system/tenant/${id}`)
 }
+export function resetTenantQuota(id: number) {
+  return post<void>(`/system/tenant/${id}/quota/reset`)
+}
 
 // ---- dict ----
 export function listDicts(query: PageQuery & { keyword?: string }) {

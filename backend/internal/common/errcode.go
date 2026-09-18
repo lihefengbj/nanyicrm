@@ -24,6 +24,7 @@ const (
 	CodeDeptNotFound     = 3006
 	CodeRecordNotFound   = 3007
 	CodeCustomerNotFound = 3013
+	CodeQuotaExceeded    = 3014
 
 	CodeInternalError = 5001
 	CodeDBError       = 5002
@@ -54,6 +55,7 @@ var codeMessages = map[int]string{
 	CodeDeptNotFound:     "部门不存在",
 	CodeRecordNotFound:   "记录不存在",
 	CodeCustomerNotFound: "客户不存在",
+	CodeQuotaExceeded:    "AI分析额度已达上限",
 
 	CodeInternalError: "系统内部错误",
 	CodeDBError:       "数据库操作失败",

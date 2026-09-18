@@ -18,6 +18,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/crm"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
+	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
 // registrar wires a route and records it in the API registry at the same
@@ -132,12 +133,18 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("PUT", "/system/dept/:id", "system:dept:update", dept.Update)
 	a.perm("DELETE", "/system/dept/:id", "system:dept:delete", dept.Delete)
 
-	tenant := system.NewTenantHandler(db)
+	quotaSvc := quota.New(db, rdb, quota.Config{
+		DailyCalls:  cfg.LLM.Quota.DailyCalls,
+		DailyTokens: cfg.LLM.Quota.DailyTokens,
+		Concurrency: cfg.LLM.Quota.Concurrency,
+	})
+	tenant := system.NewTenantHandler(db, quotaSvc)
 	a.privileged("GET", "/system/tenant", tenant.List)
 	a.privileged("GET", "/system/tenant/all", tenant.All)
 	a.privileged("POST", "/system/tenant", tenant.Create)
 	a.privileged("PUT", "/system/tenant/:id", tenant.Update)
 	a.privileged("DELETE", "/system/tenant/:id", tenant.Delete)
+	a.privileged("POST", "/system/tenant/:id/quota/reset", tenant.ResetQuota)
 
 	logs := system.NewLogHandler(db)
 	a.perm("GET", "/system/log/oper", "system:log:oper", logs.OperList)
@@ -175,11 +182,11 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	if cfg.LLM.Enabled {
 		intentProvider = ai.NewProvider(cfg.LLM)
 	}
-	intent := crm.NewIntentHandler(db, cfg.LLM.Enabled, intentProvider)
+	intent := crm.NewIntentHandler(db, cfg.LLM.Enabled, intentProvider, quotaSvc)
 	var intentQueue *crm.IntentQueue
 	var enqueueIntent crm.IntentEnqueuer
 	if cfg.LLM.Enabled {
-		intentQueue = crm.NewIntentQueue(rdb, intent)
+		intentQueue = crm.NewIntentQueue(rdb, intent, quotaSvc)
 		enqueueIntent = intentQueue.Enqueue
 		intent.SetTaskEnqueuer(intentQueue.EnqueueTask)
 	}

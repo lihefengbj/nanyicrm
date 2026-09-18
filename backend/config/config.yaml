@@ -39,6 +39,10 @@ llm:
   config_version: "deepseek-flash-v1"
   response_format: "json_object"
   thinking_mode: "disabled"
+  quota:
+    daily_calls: 1000      # 每租户每日AI意向分析次数上限，0 表示不限制
+    daily_tokens: 2000000  # 每租户单日Token用量上限，0 表示不限制
+    concurrency: 5         # 每租户并发分析上限，0 表示不限制
 
 jwt:
   signing_key: "nanyicrm-dev-signing-key-change-me"   # change in production!

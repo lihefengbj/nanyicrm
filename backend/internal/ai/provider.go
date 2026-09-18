@@ -35,6 +35,7 @@ const (
 	ErrorTypeResultDecode     = "result_decode"
 	ErrorTypeEmptyResponse    = "empty_response"
 	ErrorTypeResultValidation = "result_validation"
+	ErrorTypeQuotaExceeded    = "quota_exceeded"
 )
 
 type IntentInput struct {

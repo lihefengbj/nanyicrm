@@ -25,6 +25,11 @@ type SysTenant struct {
 	ExpireAt *time.Time `json:"expireAt"` // nil = never expires
 	Status   int8       `json:"status"`   // 1 enabled, 0 disabled
 	Remark   string     `gorm:"size:255" json:"remark"`
+	// AI intent quota overrides. nil inherits the platform default from
+	// llm.quota in config.yaml; 0 means "no limit".
+	AIDailyCalls  *int64 `json:"aiDailyCalls"`
+	AIDailyTokens *int64 `json:"aiDailyTokens"`
+	AIConcurrency *int64 `json:"aiConcurrency"`
 }
 
 func (SysTenant) TableName() string { return "sys_tenant" }

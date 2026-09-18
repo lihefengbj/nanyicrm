@@ -1,6 +1,6 @@
 basePath: /api/v1
 definitions:
-  github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair:
+  common.TokenPair:
     properties:
       accessToken:
         type: string
@@ -10,13 +10,13 @@ definitions:
       refreshToken:
         type: string
     type: object
-  internal_modules_system.ApiUpdateTitleRequest:
+  system.ApiUpdateTitleRequest:
     properties:
       title:
         maxLength: 64
         type: string
     type: object
-  internal_modules_system.LoginRequest:
+  system.LoginRequest:
     properties:
       pwd:
         type: string
@@ -26,7 +26,7 @@ definitions:
     - pwd
     - username
     type: object
-  internal_modules_system.RefreshRequest:
+  system.RefreshRequest:
     properties:
       refreshToken:
         type: string
@@ -50,12 +50,12 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_modules_system.LoginRequest'
+          $ref: '#/definitions/system.LoginRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair'
+            $ref: '#/definitions/common.TokenPair'
       summary: 登录，颁发 access/refresh token
       tags:
       - 认证
@@ -66,7 +66,7 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/internal_modules_system.RefreshRequest'
+          $ref: '#/definitions/system.RefreshRequest'
       responses:
         "200":
           description: OK
@@ -99,12 +99,12 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_modules_system.RefreshRequest'
+          $ref: '#/definitions/system.RefreshRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair'
+            $ref: '#/definitions/common.TokenPair'
       summary: 用 refresh token 轮换新的 token 对
       tags:
       - 认证
@@ -313,6 +313,19 @@ paths:
       tags:
       - CRM-客户意向
   /crm/customer/{id}/intent/feedback:
+    get:
+      description: 需要权限：crm:intent:feedback 或 crm:intent:feedback:list
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询客户AI意向反馈历史
+      tags:
+      - CRM-客户意向
     post:
       description: 需要权限：crm:intent:feedback
       responses:
@@ -464,6 +477,20 @@ paths:
       summary: 编辑跟进记录（仅本人）
       tags:
       - CRM-跟进
+  /crm/intent/config/test:
+    post:
+      description: 仅管理员可用；需要权限：crm:intent:config
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 测试AI意向模型配置
+      tags:
+      - CRM-客户意向
   /crm/intent/metrics:
     get:
       description: 需要权限：crm:intent:metrics；from/to 支持 RFC3339 或 YYYY-MM-DD
@@ -623,7 +650,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_modules_system.ApiUpdateTitleRequest'
+          $ref: '#/definitions/system.ApiUpdateTitleRequest'
       responses:
         "200":
           description: OK
@@ -1030,6 +1057,20 @@ paths:
       security:
       - BearerAuth: []
       summary: 编辑租户
+      tags:
+      - 系统管理-租户
+  /system/tenant/{id}/quota/reset:
+    post:
+      description: 需要权限：平台超管
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 重置租户今日AI额度用量
       tags:
       - 系统管理-租户
   /system/tenant/all:

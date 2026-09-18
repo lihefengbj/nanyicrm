@@ -55,6 +55,17 @@ export interface Tenant {
   status: number
   remark: string
   createdAt: string
+  // AI intent quota overrides; null inherits the platform default, 0 = unlimited
+  aiDailyCalls?: number | null
+  aiDailyTokens?: number | null
+  aiConcurrency?: number | null
+  // resolved limits (0 = unlimited) and today's usage, for the quota overview
+  effectiveDailyCalls?: number
+  effectiveDailyTokens?: number
+  effectiveConcurrency?: number
+  usedCalls?: number
+  usedTokens?: number
+  running?: number
 }
 
 export interface TenantSavePayload {
@@ -65,6 +76,9 @@ export interface TenantSavePayload {
   expireAt?: string
   status: number
   remark: string
+  aiDailyCalls?: number | null
+  aiDailyTokens?: number | null
+  aiConcurrency?: number | null
 }
 
 export interface User {

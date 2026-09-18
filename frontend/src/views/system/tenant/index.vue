@@ -34,10 +34,30 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="今日分析 / 上限" width="150" align="right">
+        <template #default="{ row }">
+          {{ quotaText(row.usedCalls, row.effectiveDailyCalls) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="今日Token / 上限" width="170" align="right">
+        <template #default="{ row }">
+          {{ quotaText(row.usedTokens, row.effectiveDailyTokens) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="AI并发 / 上限" width="120" align="right">
+        <template #default="{ row }">
+          {{ quotaText(row.running, row.effectiveConcurrency) }}
+        </template>
+      </el-table-column>
       <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column label="操作" width="230" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-popconfirm title="确定重置该租户今日AI额度用量？" @confirm="onResetQuota(row)">
+            <template #reference>
+              <el-button link type="warning">重置额度</el-button>
+            </template>
+          </el-popconfirm>
           <el-popconfirm title="确定删除该租户？有数据时将被拒绝" @confirm="onDelete(row)">
             <template #reference>
               <el-button link type="danger">删除</el-button>
@@ -88,6 +108,16 @@
         <el-form-item label="备注">
           <el-input v-model="dialog.form.remark" type="textarea" :rows="2" />
         </el-form-item>
+        <el-divider content-position="left">AI 意向额度（留空继承平台默认，0 表示不限制）</el-divider>
+        <el-form-item label="每日分析上限">
+          <el-input v-model="dialog.form.aiDailyCalls" placeholder="如 1000" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="单日Token上限">
+          <el-input v-model="dialog.form.aiDailyTokens" placeholder="如 2000000" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="并发上限">
+          <el-input v-model="dialog.form.aiConcurrency" placeholder="如 5" style="width: 100%" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
@@ -106,6 +136,7 @@ import {
   createTenant,
   updateTenant,
   deleteTenant,
+  resetTenantQuota,
 } from '@/api/system'
 import type { Tenant, TenantSavePayload } from '@/types/api'
 
@@ -129,13 +160,31 @@ function formatDate(iso: string) {
   return iso.slice(0, 10)
 }
 
+// quotaText renders "used / limit" with ∞ for an unlimited ceiling.
+function quotaText(used?: number, limit?: number) {
+  const usedText = (used ?? 0).toLocaleString()
+  const limitText = limit ? limit.toLocaleString() : '∞'
+  return `${usedText} / ${limitText}`
+}
+
+// parseQuota turns an empty input into undefined (inherit platform default)
+// and anything else into a non-negative number.
+function parseQuota(value: string | number): number | null | undefined {
+  if (value === '' || value === null || value === undefined) return undefined
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
 const formRef = ref<FormInstance>()
 const dialog = reactive({
   visible: false,
   isEdit: false,
   saving: false,
   editId: 0,
-  form: { code: '', name: '', contact: '', phone: '', expireAt: '', status: 1, remark: '' } as TenantSavePayload & { expireAt: string },
+  form: {
+    code: '', name: '', contact: '', phone: '', expireAt: '', status: 1, remark: '',
+    aiDailyCalls: '' as string | number, aiDailyTokens: '' as string | number, aiConcurrency: '' as string | number,
+  },
 })
 
 const rules: FormRules = {
@@ -149,7 +198,7 @@ const rules: FormRules = {
 function openCreate() {
   dialog.isEdit = false
   dialog.editId = 0
-  dialog.form = { code: '', name: '', contact: '', phone: '', expireAt: '', status: 1, remark: '' }
+  dialog.form = { code: '', name: '', contact: '', phone: '', expireAt: '', status: 1, remark: '', aiDailyCalls: '', aiDailyTokens: '', aiConcurrency: '' }
   dialog.visible = true
 }
 
@@ -164,6 +213,9 @@ function openEdit(row: Tenant) {
     expireAt: row.expireAt ? row.expireAt.slice(0, 10) : '',
     status: row.status,
     remark: row.remark,
+    aiDailyCalls: row.aiDailyCalls == null ? '' : row.aiDailyCalls,
+    aiDailyTokens: row.aiDailyTokens == null ? '' : row.aiDailyTokens,
+    aiConcurrency: row.aiConcurrency == null ? '' : row.aiConcurrency,
   }
   dialog.visible = true
 }
@@ -174,7 +226,13 @@ async function onSave() {
   dialog.saving = true
   try {
     const payload = { ...dialog.form }
-    const body: TenantSavePayload = { ...payload, expireAt: payload.expireAt || undefined }
+    const body: TenantSavePayload = {
+      ...payload,
+      expireAt: payload.expireAt || undefined,
+      aiDailyCalls: parseQuota(payload.aiDailyCalls),
+      aiDailyTokens: parseQuota(payload.aiDailyTokens),
+      aiConcurrency: parseQuota(payload.aiConcurrency),
+    }
     if (dialog.isEdit) {
       await updateTenant(dialog.editId, body)
     } else {
@@ -187,6 +245,16 @@ async function onSave() {
     // error toast handled by interceptor
   } finally {
     dialog.saving = false
+  }
+}
+
+async function onResetQuota(row: Tenant) {
+  try {
+    await resetTenantQuota(row.id)
+    ElMessage.success('已重置今日AI额度用量')
+    load()
+  } catch {
+    // error toast handled by interceptor
   }
 }
 
