@@ -108,6 +108,11 @@ const store = useUserStore()
 const router = useRouter()
 
 const roleText = computed(() => (store.profile?.roles.length ? store.profile.roles.join('、') : '-'))
+const canLoadIntentWorkbench = computed(() => {
+  if (!store.hasPerm('crm:intent:workbench')) return false
+  if (!store.profile?.isPrivileged) return true
+  return (store.profile.tenantId ?? 0) > 0
+})
 
 const summary = ref<DashboardSummary | null>(null)
 const workbench = ref<IntentWorkbench | null>(null)
@@ -130,8 +135,9 @@ onMounted(async () => {
   } catch {
     // summary stays hidden when the CRM module is unavailable
   }
-  if (store.hasPerm('crm:intent:workbench')) {
-    workbench.value = await getIntentWorkbench().catch(() => null)
+  if (canLoadIntentWorkbench.value) {
+    const tenantId = store.profile?.isPrivileged ? store.profile.tenantId : undefined
+    workbench.value = await getIntentWorkbench(tenantId).catch(() => null)
   }
 })
 </script>
