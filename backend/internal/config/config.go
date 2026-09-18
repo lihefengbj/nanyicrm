@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	mysql "github.com/go-sql-driver/mysql"
 	"gopkg.in/yaml.v3"
 )
 
@@ -141,9 +142,6 @@ func (c *Config) applyDefaults() {
 			DSN:  withTimeoutDefaults("root:root@tcp(127.0.0.1:3306)/nanyicrm?charset=utf8mb4&parseTime=True&loc=Local"),
 		}}
 	}
-	if c.Redis.Addr == "" {
-		c.Redis.Addr = "127.0.0.1:6379"
-	}
 	if c.JWT.SigningKey == "" {
 		c.JWT.SigningKey = "nanyicrm-dev-signing-key-change-me"
 	}
@@ -184,6 +182,49 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// Validate checks configuration before any external connection is opened.
+// This keeps missing environment variables from surfacing later as opaque
+// driver errors such as "missing the slash separating the database name".
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+	if len(c.MySQL) == 0 {
+		return fmt.Errorf("mysql.default.dsn is required")
+	}
+	for _, item := range c.MySQL {
+		name := item.Name
+		if name == "" {
+			name = "default"
+		}
+		dsn := strings.TrimSpace(item.DSN)
+		if dsn == "" {
+			return fmt.Errorf("mysql.%s.dsn is required; check MYSQL_DSN or CONFIG_PATH", name)
+		}
+		if _, err := mysql.ParseDSN(dsn); err != nil {
+			return fmt.Errorf("mysql.%s.dsn is invalid: %w", name, err)
+		}
+	}
+	if strings.TrimSpace(c.Redis.Addr) == "" {
+		return fmt.Errorf("redis.addr is required; check REDIS_ADDR or CONFIG_PATH")
+	}
+	if c.LLM.Enabled {
+		if strings.TrimSpace(c.LLM.Provider) == "" {
+			return fmt.Errorf("llm.provider is required when llm.enabled=true")
+		}
+		if strings.TrimSpace(c.LLM.BaseURL) == "" {
+			return fmt.Errorf("llm.base_url is required when llm.enabled=true")
+		}
+		if strings.TrimSpace(c.LLM.APIKey) == "" {
+			return fmt.Errorf("llm.api_key is required when llm.enabled=true; check LLM_API_KEY")
+		}
+		if strings.TrimSpace(c.LLM.Model) == "" {
+			return fmt.Errorf("llm.model is required when llm.enabled=true")
+		}
+	}
+	return nil
+}
+
 // DefaultMySQL returns the connection named "default", or the first one.
 func (c *Config) DefaultMySQL() MySQLConfig {
 	for _, m := range c.MySQL {
@@ -209,6 +250,9 @@ func parseDuration(s string, fallback time.Duration) time.Duration {
 // caller did not set any. Guards against silently-dropped remote connections
 // hanging queries for tens of seconds.
 func withTimeoutDefaults(dsn string) string {
+	if strings.TrimSpace(dsn) == "" {
+		return ""
+	}
 	if strings.Contains(dsn, "timeout=") || strings.Contains(dsn, "readTimeout=") {
 		return dsn
 	}

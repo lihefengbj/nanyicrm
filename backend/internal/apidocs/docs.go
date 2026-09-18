@@ -28,7 +28,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/system.LoginRequest"
+                            "$ref": "#/definitions/internal_modules_system.LoginRequest"
                         }
                     }
                 ],
@@ -36,7 +36,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/common.TokenPair"
+                            "$ref": "#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair"
                         }
                     }
                 }
@@ -59,7 +59,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/system.RefreshRequest"
+                            "$ref": "#/definitions/internal_modules_system.RefreshRequest"
                         }
                     }
                 ],
@@ -109,7 +109,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/system.RefreshRequest"
+                            "$ref": "#/definitions/internal_modules_system.RefreshRequest"
                         }
                     }
                 ],
@@ -117,7 +117,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/common.TokenPair"
+                            "$ref": "#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair"
                         }
                     }
                 }
@@ -366,6 +366,75 @@ const docTemplate = `{
                 }
             }
         },
+        "/crm/customer/intent/batch": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:batch；单次最多50个客户",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "批量提交客户AI意向分析",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/intent/tasks/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:batch",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "查询批量AI意向任务进度",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/intent/tasks/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:batch",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "取消尚未开始的批量AI意向任务",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/crm/customer/{id}": {
             "put": {
                 "security": [
@@ -456,6 +525,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/crm/customer/{id}/intent/compare": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:compare",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "查询客户AI意向结果对比",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/{id}/intent/feedback": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:feedback",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "提交客户AI意向反馈",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/crm/customer/{id}/intent/history": {
             "get": {
                 "security": [
@@ -468,6 +583,29 @@ const docTemplate = `{
                     "CRM-客户意向"
                 ],
                 "summary": "查询客户AI意向分析历史",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/customer/{id}/intent/retry": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:analyze",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "重试客户最近一次AI意向分析",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -556,6 +694,52 @@ const docTemplate = `{
                     "CRM-跟进"
                 ],
                 "summary": "删除跟进记录（仅本人）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/intent/metrics": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:metrics；from/to 支持 RFC3339 或 YYYY-MM-DD",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "AI意向运营指标",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/intent/workbench": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:workbench",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "AI意向待跟进工作台",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -828,7 +1012,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/system.ApiUpdateTitleRequest"
+                            "$ref": "#/definitions/internal_modules_system.ApiUpdateTitleRequest"
                         }
                     }
                 ],
@@ -1559,7 +1743,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "common.TokenPair": {
+        "github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair": {
             "type": "object",
             "properties": {
                 "accessToken": {
@@ -1574,7 +1758,7 @@ const docTemplate = `{
                 }
             }
         },
-        "system.ApiUpdateTitleRequest": {
+        "internal_modules_system.ApiUpdateTitleRequest": {
             "type": "object",
             "properties": {
                 "title": {
@@ -1583,7 +1767,7 @@ const docTemplate = `{
                 }
             }
         },
-        "system.LoginRequest": {
+        "internal_modules_system.LoginRequest": {
             "type": "object",
             "required": [
                 "pwd",
@@ -1598,7 +1782,7 @@ const docTemplate = `{
                 }
             }
         },
-        "system.RefreshRequest": {
+        "internal_modules_system.RefreshRequest": {
             "type": "object",
             "required": [
                 "refreshToken"

@@ -39,6 +39,40 @@
       </el-col>
     </el-row>
 
+    <el-card v-if="workbench && store.hasPerm('crm:intent:workbench')" class="intent-workbench">
+      <template #header>
+        <div class="card-header">
+          <span>AI意向待跟进</span>
+          <el-button link type="primary" @click="go('/crm/customer')">查看客户列表</el-button>
+        </div>
+      </template>
+      <el-row :gutter="16">
+        <el-col :span="6"><el-statistic title="高意向客户" :value="workbench.highIntentCount" /></el-col>
+        <el-col :span="6"><el-statistic title="今日待跟进" :value="workbench.todayFollowUpCount" /></el-col>
+        <el-col :span="6"><el-statistic title="已逾期" :value="workbench.overdueFollowUpCount" /></el-col>
+        <el-col :span="6"><el-statistic title="近7日分析失败" :value="workbench.failedAnalysisCount" /></el-col>
+      </el-row>
+      <el-divider />
+      <el-row :gutter="24">
+        <el-col :span="12">
+          <div class="intent-list-title">最近意向升高</div>
+          <el-empty v-if="!workbench.risingCustomers.length" description="暂无数据" :image-size="50" />
+          <div v-for="item in workbench.risingCustomers" :key="item.customerId" class="intent-list-item" @click="goCustomer(item.customerId)">
+            <span>{{ item.customerName || `客户#${item.customerId}` }}</span>
+            <el-tag type="success">+{{ item.scoreDiff }}</el-tag>
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <div class="intent-list-title">最近意向降低</div>
+          <el-empty v-if="!workbench.fallingCustomers.length" description="暂无数据" :image-size="50" />
+          <div v-for="item in workbench.fallingCustomers" :key="item.customerId" class="intent-list-item" @click="goCustomer(item.customerId)">
+            <span>{{ item.customerName || `客户#${item.customerId}` }}</span>
+            <el-tag type="danger">{{ item.scoreDiff }}</el-tag>
+          </div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <el-row :gutter="16" class="quick">
       <el-col v-if="store.hasPerm('system:user:list')" :span="8">
         <el-card shadow="hover" class="quick-card" @click="router.push('/system/user')">
@@ -67,8 +101,8 @@ defineOptions({ name: 'Dashboard' })
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
-import { dashboardSummary } from '@/api/crm'
-import type { DashboardSummary } from '@/types/api'
+import { dashboardSummary, getIntentWorkbench } from '@/api/crm'
+import type { DashboardSummary, IntentWorkbench } from '@/types/api'
 
 const store = useUserStore()
 const router = useRouter()
@@ -76,6 +110,7 @@ const router = useRouter()
 const roleText = computed(() => (store.profile?.roles.length ? store.profile.roles.join('、') : '-'))
 
 const summary = ref<DashboardSummary | null>(null)
+const workbench = ref<IntentWorkbench | null>(null)
 
 function fmtAmount(v: number) {
   return v >= 10000 ? `${(v / 10000).toFixed(1)} 万` : v.toFixed(2)
@@ -85,11 +120,18 @@ function go(path: string) {
   router.push(path)
 }
 
+function goCustomer(id: number) {
+  router.push({ path: '/crm/customer', query: { customerId: id } })
+}
+
 onMounted(async () => {
   try {
     summary.value = await dashboardSummary()
   } catch {
     // summary stays hidden when the CRM module is unavailable
+  }
+  if (store.hasPerm('crm:intent:workbench')) {
+    workbench.value = await getIntentWorkbench().catch(() => null)
   }
 })
 </script>
@@ -97,6 +139,26 @@ onMounted(async () => {
 <style scoped>
 .quick {
   margin-top: 16px;
+}
+.intent-workbench {
+  margin-top: 16px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.intent-list-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.intent-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  cursor: pointer;
 }
 .stats {
   margin-top: 16px;

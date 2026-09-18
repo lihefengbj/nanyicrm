@@ -303,6 +303,9 @@ export interface CustomerIntent {
   model: string
   promptVersion: string
   status: string
+  manualOverride?: boolean
+  manualIntentLevel?: 'high' | 'medium' | 'low' | 'unknown' | ''
+  followUpStatus?: 'today' | 'overdue' | 'future' | 'none'
   createdAt: string
   updatedAt: string
 }
@@ -318,8 +321,104 @@ export interface CustomerIntentHistory {
   model: string
   promptVersion: string
   costMillis: number
+  inputSummary: string
   analyzedAt?: string
   createdAt: string
+}
+
+export interface CustomerIntentFeedbackPayload {
+  analysisId?: number
+  feedbackType: 'accurate' | 'partial' | 'inaccurate'
+  accepted?: boolean
+  manualIntentLevel?: 'high' | 'medium' | 'low' | 'unknown'
+  note?: string
+}
+
+export interface CustomerIntentCompare {
+  current?: CustomerIntentHistory | null
+  previous?: CustomerIntentHistory | null
+  scoreDiff?: number | null
+  levelChanged: boolean
+}
+
+export interface CustomerIntentTaskItem {
+  id: number
+  taskId: number
+  customerId: number
+  status: 'pending' | 'running' | 'success' | 'failed' | 'canceled'
+  attempts: number
+  errorMessage: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface CustomerIntentTask {
+  id: number
+  tenantId: number
+  createdBy: number
+  status: 'pending' | 'running' | 'success' | 'failed' | 'canceled'
+  totalCount: number
+  pendingCount: number
+  runningCount: number
+  successCount: number
+  failedCount: number
+  canceledCount: number
+  maxAttempts: number
+  errorMessage: string
+  startedAt?: string
+  finishedAt?: string
+  createdAt: string
+  items?: CustomerIntentTaskItem[]
+}
+
+export interface IntentWorkbenchCustomer {
+  customerId: number
+  customerName: string
+  intentLevel: CustomerIntent['intentLevel']
+  intentScore?: number
+  suggestedNextAt?: string
+  followUpStatus: 'today' | 'overdue' | 'future' | 'none'
+  summary: string
+  scoreDiff?: number
+}
+
+export interface IntentWorkbench {
+  highIntentCount: number
+  todayFollowUpCount: number
+  overdueFollowUpCount: number
+  failedAnalysisCount: number
+  risingCustomers: IntentWorkbenchCustomer[]
+  fallingCustomers: IntentWorkbenchCustomer[]
+  failedCustomers: IntentWorkbenchCustomer[]
+}
+
+export interface IntentMetricGroup {
+  provider: string
+  model: string
+  promptVersion: string
+  count: number
+}
+
+export interface IntentFailureGroup {
+  reason: string
+  count: number
+}
+
+export interface IntentMetrics {
+  from: string
+  to: string
+  requestCount: number
+  successCount: number
+  failedCount: number
+  successRate: number
+  averageCostMillis: number
+  p95CostMillis: number
+  byProvider: IntentMetricGroup[]
+  failureReasons: IntentFailureGroup[]
+  levelDistribution: Record<string, number>
+  feedbackCount: number
+  acceptedFeedback: number
+  acceptanceRate: number
 }
 
 // ---- sales ----

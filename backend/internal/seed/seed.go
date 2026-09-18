@@ -67,6 +67,10 @@ func ensureIntentMenus(db *gorm.DB) error {
 		{ParentID: customerMenu.ID, Title: "查看AI意向", Type: 3, Perms: "crm:intent:list", Sort: 10, Visible: 1, Status: 1},
 		{ParentID: customerMenu.ID, Title: "分析客户意向", Type: 3, Perms: "crm:intent:analyze", Sort: 11, Visible: 1, Status: 1},
 		{ParentID: customerMenu.ID, Title: "查看分析历史", Type: 3, Perms: "crm:intent:history", Sort: 12, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "提交AI意向反馈", Type: 3, Perms: "crm:intent:feedback", Sort: 13, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "批量分析客户意向", Type: 3, Perms: "crm:intent:batch", Sort: 14, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "AI意向工作台", Type: 3, Perms: "crm:intent:workbench", Sort: 15, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "查看AI意向指标", Type: 3, Perms: "crm:intent:metrics", Sort: 16, Visible: 1, Status: 1},
 	}
 	var grant []model.SysMenu
 	for _, button := range buttons {

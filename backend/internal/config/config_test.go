@@ -49,6 +49,28 @@ func TestLoadKeepsZeroLogRetention(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsMissingMySQLDSN(t *testing.T) {
+	cfg := defaults()
+	cfg.MySQL = []MySQLConfig{{Name: "default", DSN: ""}}
+	cfg.Redis.Addr = "127.0.0.1:6379"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted missing MySQL DSN")
+	}
+}
+
+func TestValidateRejectsEnabledLLMWithoutCredentials(t *testing.T) {
+	cfg := defaults()
+	cfg.MySQL = []MySQLConfig{{Name: "default", DSN: "root:pwd@tcp(127.0.0.1:3306)/nanyicrm"}}
+	cfg.Redis.Addr = "127.0.0.1:6379"
+	cfg.LLM.Enabled = true
+	cfg.LLM.Provider = "deepseek"
+	cfg.LLM.BaseURL = "https://api.deepseek.com"
+	cfg.LLM.Model = "deepseek-flash"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted enabled LLM without API key")
+	}
+}
+
 func TestProductionRequiresStrongSecrets(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

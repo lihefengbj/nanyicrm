@@ -26,38 +26,64 @@ const (
 var ErrIntentAnalysisUnavailable = errors.New("intent analysis unavailable")
 
 type IntentHandler struct {
-	db       *gorm.DB
-	enabled  bool
-	provider ai.Provider
+	db           *gorm.DB
+	enabled      bool
+	provider     ai.Provider
+	taskEnqueuer func(context.Context, IntentTask) error
 }
 
 func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider) *IntentHandler {
 	return &IntentHandler{db: db, enabled: enabled, provider: provider}
 }
 
+func (h *IntentHandler) SetTaskEnqueuer(enqueuer func(context.Context, IntentTask) error) {
+	h.taskEnqueuer = enqueuer
+}
+
 type IntentResponse struct {
-	ID               uint64     `json:"id"`
-	TenantID         uint64     `json:"tenantId"`
-	CustomerID       uint64     `json:"customerId"`
-	IntentLevel      string     `json:"intentLevel"`
-	IntentScore      *int       `json:"intentScore"`
-	Confidence       *float64   `json:"confidence"`
-	Summary          string     `json:"summary"`
-	Needs            []string   `json:"needs"`
-	PainPoints       []string   `json:"painPoints"`
-	Budget           string     `json:"budget"`
-	PurchaseTimeline string     `json:"purchaseTimeline"`
-	DecisionRole     string     `json:"decisionRole"`
-	Risks            []string   `json:"risks"`
-	NextAction       string     `json:"nextAction"`
-	SuggestedNextAt  *time.Time `json:"suggestedNextAt"`
-	AnalyzedAt       time.Time  `json:"analyzedAt"`
-	Provider         string     `json:"provider"`
-	Model            string     `json:"model"`
-	PromptVersion    string     `json:"promptVersion"`
-	Status           string     `json:"status"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	UpdatedAt        time.Time  `json:"updatedAt"`
+	ID                uint64     `json:"id"`
+	TenantID          uint64     `json:"tenantId"`
+	CustomerID        uint64     `json:"customerId"`
+	IntentLevel       string     `json:"intentLevel"`
+	IntentScore       *int       `json:"intentScore"`
+	Confidence        *float64   `json:"confidence"`
+	Summary           string     `json:"summary"`
+	Needs             []string   `json:"needs"`
+	PainPoints        []string   `json:"painPoints"`
+	Budget            string     `json:"budget"`
+	PurchaseTimeline  string     `json:"purchaseTimeline"`
+	DecisionRole      string     `json:"decisionRole"`
+	Risks             []string   `json:"risks"`
+	NextAction        string     `json:"nextAction"`
+	SuggestedNextAt   *time.Time `json:"suggestedNextAt"`
+	AnalyzedAt        time.Time  `json:"analyzedAt"`
+	Provider          string     `json:"provider"`
+	Model             string     `json:"model"`
+	PromptVersion     string     `json:"promptVersion"`
+	Status            string     `json:"status"`
+	ManualOverride    bool       `json:"manualOverride"`
+	ManualIntentLevel string     `json:"manualIntentLevel"`
+	FollowUpStatus    string     `json:"followUpStatus"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
+}
+
+type IntentListResponse struct {
+	ID                uint64     `json:"id"`
+	CustomerID        uint64     `json:"customerId"`
+	IntentLevel       string     `json:"intentLevel"`
+	IntentScore       *int       `json:"intentScore"`
+	Confidence        *float64   `json:"confidence"`
+	Summary           string     `json:"summary"`
+	NextAction        string     `json:"nextAction"`
+	SuggestedNextAt   *time.Time `json:"suggestedNextAt"`
+	AnalyzedAt        time.Time  `json:"analyzedAt"`
+	Provider          string     `json:"provider"`
+	Model             string     `json:"model"`
+	Status            string     `json:"status"`
+	ManualOverride    bool       `json:"manualOverride"`
+	ManualIntentLevel string     `json:"manualIntentLevel"`
+	FollowUpStatus    string     `json:"followUpStatus"`
 }
 
 type IntentHistoryResponse struct {
@@ -72,7 +98,23 @@ type IntentHistoryResponse struct {
 	PromptVersion string          `json:"promptVersion"`
 	CostMillis    int64           `json:"costMillis"`
 	AnalyzedAt    *time.Time      `json:"analyzedAt"`
+	InputSummary  string          `json:"inputSummary"`
 	CreatedAt     time.Time       `json:"createdAt"`
+}
+
+type IntentFeedbackRequest struct {
+	AnalysisID        uint64 `json:"analysisId"`
+	FeedbackType      string `json:"feedbackType" binding:"required,oneof=accurate partial inaccurate"`
+	Accepted          *bool  `json:"accepted"`
+	ManualIntentLevel string `json:"manualIntentLevel" binding:"omitempty,oneof=high medium low unknown"`
+	Note              string `json:"note" binding:"max=1024"`
+}
+
+type IntentCompareResponse struct {
+	Current      *IntentHistoryResponse `json:"current"`
+	Previous     *IntentHistoryResponse `json:"previous"`
+	ScoreDiff    *int                   `json:"scoreDiff"`
+	LevelChanged bool                   `json:"levelChanged"`
 }
 
 // @Summary  查询客户当前AI意向
@@ -114,6 +156,12 @@ func (h *IntentHandler) History(c *gin.Context) {
 	page := common.ParsePageQuery(c)
 	query := h.db.Model(&model.CrmCustomerIntentAnalysis{}).
 		Where("tenant_id = ? AND customer_id = ?", customer.TenantID, customer.ID)
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		switch status {
+		case intentStatusRunning, intentStatusSuccess, intentStatusFailed:
+			query = query.Where("status = ?", status)
+		}
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -153,6 +201,128 @@ func (h *IntentHandler) Analyze(c *gin.Context) {
 		return
 	}
 	common.OK(c, h.toResponse(intent))
+}
+
+// @Summary  重试客户最近一次AI意向分析
+// @Tags     CRM-客户意向
+// @Description 需要权限：crm:intent:analyze
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/{id}/intent/retry [post]
+func (h *IntentHandler) Retry(c *gin.Context) {
+	customer, ok := h.customer(c)
+	if !ok {
+		return
+	}
+	intent, err := h.analyzeCustomer(c.Request.Context(), customer, middleware.CurrentUserID(c))
+	if err != nil {
+		if errors.Is(err, ErrIntentAnalysisUnavailable) {
+			common.Fail(c, common.CodeAIUnavailable)
+		} else {
+			common.Fail(c, common.CodeDBError)
+		}
+		return
+	}
+	common.OK(c, h.toResponse(intent))
+}
+
+// @Summary  提交客户AI意向反馈
+// @Tags     CRM-客户意向
+// @Description 需要权限：crm:intent:feedback
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/{id}/intent/feedback [post]
+func (h *IntentHandler) Feedback(c *gin.Context) {
+	customer, ok := h.customer(c)
+	if !ok {
+		return
+	}
+	var req IntentFeedbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamInvalid)
+		return
+	}
+	var analysis model.CrmCustomerIntentAnalysis
+	query := h.db.Where("tenant_id = ? AND customer_id = ? AND status = ?",
+		customer.TenantID, customer.ID, intentStatusSuccess)
+	if req.AnalysisID > 0 {
+		query = query.Where("id = ?", req.AnalysisID)
+	} else {
+		query = query.Order("id DESC")
+	}
+	if err := query.First(&analysis).Error; err != nil {
+		common.Fail(c, common.CodeRecordNotFound)
+		return
+	}
+	feedback := model.CrmCustomerIntentFeedback{
+		TenantID:          customer.TenantID,
+		CustomerID:        customer.ID,
+		AnalysisID:        analysis.ID,
+		UserID:            middleware.CurrentUserID(c),
+		FeedbackType:      req.FeedbackType,
+		Accepted:          req.Accepted,
+		ManualIntentLevel: req.ManualIntentLevel,
+		Note:              strings.TrimSpace(req.Note),
+	}
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&feedback).Error; err != nil {
+			return err
+		}
+		if req.ManualIntentLevel == "" {
+			return nil
+		}
+		var current model.CrmCustomerIntent
+		if err := tx.Where("tenant_id = ? AND customer_id = ?", customer.TenantID, customer.ID).
+			First(&current).Error; err != nil {
+			return err
+		}
+		current.ManualOverride = true
+		current.ManualIntentLevel = req.ManualIntentLevel
+		return tx.Save(&current).Error
+	})
+	if err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	common.OK(c, gin.H{"id": feedback.ID})
+}
+
+// @Summary  查询客户AI意向结果对比
+// @Tags     CRM-客户意向
+// @Description 需要权限：crm:intent:compare
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/{id}/intent/compare [get]
+func (h *IntentHandler) Compare(c *gin.Context) {
+	customer, ok := h.customer(c)
+	if !ok {
+		return
+	}
+	var rows []model.CrmCustomerIntentAnalysis
+	if err := h.db.Where("tenant_id = ? AND customer_id = ? AND status = ?",
+		customer.TenantID, customer.ID, intentStatusSuccess).
+		Order("id DESC").Limit(2).Find(&rows).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	response := IntentCompareResponse{}
+	if len(rows) > 0 {
+		current := h.historyResponse(&rows[0])
+		response.Current = &current
+	}
+	if len(rows) > 1 {
+		previous := h.historyResponse(&rows[1])
+		response.Previous = &previous
+		if response.Current != nil && response.Previous != nil &&
+			response.Current.Result != nil && response.Previous.Result != nil {
+			if response.Current.Result.IntentScore != nil && response.Previous.Result.IntentScore != nil {
+				diff := *response.Current.Result.IntentScore - *response.Previous.Result.IntentScore
+				response.ScoreDiff = &diff
+			}
+			response.LevelChanged = response.Current.Result.IntentLevel != response.Previous.Result.IntentLevel
+		}
+	}
+	common.OK(c, response)
 }
 
 // AnalyzeCustomerByID is used by background workers after a follow-up is
@@ -322,28 +492,54 @@ func (h *IntentHandler) toModel(customer *model.CrmCustomer, result *ai.IntentRe
 
 func (h *IntentHandler) toResponse(intent *model.CrmCustomerIntent) IntentResponse {
 	return IntentResponse{
-		ID:               intent.ID,
-		TenantID:         intent.TenantID,
-		CustomerID:       intent.CustomerID,
-		IntentLevel:      intent.IntentLevel,
-		IntentScore:      intent.IntentScore,
-		Confidence:       intent.Confidence,
-		Summary:          intent.Summary,
-		Needs:            unmarshalStrings(intent.Needs),
-		PainPoints:       unmarshalStrings(intent.PainPoints),
-		Budget:           intent.Budget,
-		PurchaseTimeline: intent.PurchaseTimeline,
-		DecisionRole:     intent.DecisionRole,
-		Risks:            unmarshalStrings(intent.Risks),
-		NextAction:       intent.NextAction,
-		SuggestedNextAt:  intent.SuggestedNextAt,
-		AnalyzedAt:       intent.AnalyzedAt,
-		Provider:         intent.Provider,
-		Model:            intent.Model,
-		PromptVersion:    intent.PromptVersion,
-		Status:           intent.Status,
-		CreatedAt:        intent.CreatedAt,
-		UpdatedAt:        intent.UpdatedAt,
+		ID:                intent.ID,
+		TenantID:          intent.TenantID,
+		CustomerID:        intent.CustomerID,
+		IntentLevel:       intent.IntentLevel,
+		IntentScore:       intent.IntentScore,
+		Confidence:        intent.Confidence,
+		Summary:           intent.Summary,
+		Needs:             unmarshalStrings(intent.Needs),
+		PainPoints:        unmarshalStrings(intent.PainPoints),
+		Budget:            intent.Budget,
+		PurchaseTimeline:  intent.PurchaseTimeline,
+		DecisionRole:      intent.DecisionRole,
+		Risks:             unmarshalStrings(intent.Risks),
+		NextAction:        intent.NextAction,
+		SuggestedNextAt:   intent.SuggestedNextAt,
+		AnalyzedAt:        intent.AnalyzedAt,
+		Provider:          intent.Provider,
+		Model:             intent.Model,
+		PromptVersion:     intent.PromptVersion,
+		Status:            intent.Status,
+		ManualOverride:    intent.ManualOverride,
+		ManualIntentLevel: intent.ManualIntentLevel,
+		FollowUpStatus:    followUpStatus(intent.SuggestedNextAt),
+		CreatedAt:         intent.CreatedAt,
+		UpdatedAt:         intent.UpdatedAt,
+	}
+}
+
+func intentListResponse(intent *model.CrmCustomerIntent) *IntentListResponse {
+	if intent == nil {
+		return nil
+	}
+	return &IntentListResponse{
+		ID:                intent.ID,
+		CustomerID:        intent.CustomerID,
+		IntentLevel:       intent.IntentLevel,
+		IntentScore:       intent.IntentScore,
+		Confidence:        intent.Confidence,
+		Summary:           intent.Summary,
+		NextAction:        intent.NextAction,
+		SuggestedNextAt:   intent.SuggestedNextAt,
+		AnalyzedAt:        intent.AnalyzedAt,
+		Provider:          intent.Provider,
+		Model:             intent.Model,
+		Status:            intent.Status,
+		ManualOverride:    intent.ManualOverride,
+		ManualIntentLevel: intent.ManualIntentLevel,
+		FollowUpStatus:    followUpStatus(intent.SuggestedNextAt),
 	}
 }
 
@@ -372,8 +568,38 @@ func (h *IntentHandler) historyResponse(history *model.CrmCustomerIntentAnalysis
 		PromptVersion: history.PromptVersion,
 		CostMillis:    history.CostMillis,
 		AnalyzedAt:    history.AnalyzedAt,
+		InputSummary:  summarizeIntentInput(history.InputSnapshot),
 		CreatedAt:     history.CreatedAt,
 	}
+}
+
+func followUpStatus(nextAt *time.Time) string {
+	if nextAt == nil {
+		return "none"
+	}
+	now := time.Now()
+	if nextAt.Before(now) {
+		return "overdue"
+	}
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if !nextAt.Before(start.AddDate(0, 0, 1)) {
+		return "future"
+	}
+	return "today"
+}
+
+func summarizeIntentInput(snapshot string) string {
+	if strings.TrimSpace(snapshot) == "" {
+		return ""
+	}
+	var input ai.IntentInput
+	if json.Unmarshal([]byte(snapshot), &input) != nil {
+		return ""
+	}
+	return "客户：" + input.Customer.Name +
+		"，联系人 " + strconv.Itoa(len(input.Contacts)) + " 个" +
+		"，跟进记录 " + strconv.Itoa(len(input.FollowUps)) + " 条" +
+		"，商机 " + strconv.Itoa(len(input.Opportunities)) + " 个"
 }
 
 func validateIntentResult(result *ai.IntentResult) error {

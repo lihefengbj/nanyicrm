@@ -32,6 +32,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.CrmContract{},
 		&model.CrmCustomerIntent{},
 		&model.CrmCustomerIntentAnalysis{},
+		&model.CrmCustomerIntentFeedback{},
+		&model.CrmCustomerIntentTask{},
+		&model.CrmCustomerIntentTaskItem{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

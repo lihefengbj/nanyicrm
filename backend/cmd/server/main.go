@@ -30,6 +30,9 @@ import (
 // @description                 输入 "Bearer {access_token}"
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
 	gin.SetMode(cfg.Server.Mode)
 
 	closer, err := logger.Setup(cfg.Log)

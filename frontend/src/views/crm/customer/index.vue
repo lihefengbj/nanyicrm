@@ -19,6 +19,53 @@
             <el-option label="已流失" value="3" />
           </el-select>
         </el-form-item>
+        <el-form-item label="AI意向">
+          <el-select v-model="query.intentLevel" clearable placeholder="全部" style="width: 120px">
+            <el-option label="高意向" value="high" />
+            <el-option label="中意向" value="medium" />
+            <el-option label="低意向" value="low" />
+            <el-option label="未知" value="unknown" />
+            <el-option label="未分析" value="none" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分析状态">
+          <el-select v-model="query.intentStatus" clearable placeholder="全部" style="width: 120px">
+            <el-option label="未分析" value="unanalysed" />
+            <el-option label="分析中" value="running" />
+            <el-option label="成功" value="success" />
+            <el-option label="失败" value="failed" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分数">
+          <el-input-number v-model="query.minScore" :min="0" :max="100" controls-position="right" placeholder="最低" style="width: 105px" />
+          <span class="range-separator">-</span>
+          <el-input-number v-model="query.maxScore" :min="0" :max="100" controls-position="right" placeholder="最高" style="width: 105px" />
+        </el-form-item>
+        <el-form-item label="最低置信度">
+          <el-input-number v-model="query.minConfidence" :min="0" :max="1" :step="0.1" :precision="2" controls-position="right" placeholder="0~1" style="width: 115px" />
+        </el-form-item>
+        <el-form-item label="待跟进">
+          <el-select v-model="query.followUpStatus" clearable placeholder="全部" style="width: 130px">
+            <el-option label="今日到期" value="today" />
+            <el-option label="已逾期" value="overdue" />
+            <el-option label="未来待跟进" value="future" />
+            <el-option label="无建议时间" value="none" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="最近分析">
+          <el-select v-model="query.analyzedWithin" clearable placeholder="不限" style="width: 120px">
+            <el-option label="最近7天" value="7d" />
+            <el-option label="最近30天" value="30d" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-select v-model="query.intentSort" clearable placeholder="默认" style="width: 150px">
+            <el-option label="意向分数降序" value="score_desc" />
+            <el-option label="置信度降序" value="confidence_desc" />
+            <el-option label="最近分析倒序" value="analyzed_desc" />
+            <el-option label="建议跟进正序" value="follow_up_asc" />
+          </el-select>
+        </el-form-item>
         <el-form-item v-if="isPrivileged" label="租户">
           <el-select v-model="query.tenantId" clearable placeholder="全部" style="width: 160px">
             <el-option v-for="tenant in tenantOptions" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
@@ -29,13 +76,17 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="load(1)">查询</el-button>
+          <el-button v-if="store.hasPerm('crm:intent:batch')" type="warning" plain @click="onBatchAnalyze">
+            批量AI分析{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
+          </el-button>
           <el-button v-if="store.hasPerm('crm:customer:create')" type="primary" plain :icon="Plus" @click="openDialog()">
             新增客户
           </el-button>
         </el-form-item>
       </el-form>
 
-      <el-table v-loading="loading" :data="rows" border>
+      <el-table v-loading="loading" :data="rows" border @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="45" />
         <el-table-column prop="name" label="客户名称" min-width="160" />
         <el-table-column v-if="isPrivileged" prop="tenantId" label="租户ID" width="90" />
         <el-table-column prop="phone" label="电话" width="130" />
@@ -61,6 +112,9 @@
               </el-tag>
             </el-button>
             <span v-else class="muted-text">未分析</span>
+            <el-tag v-if="row.intent?.followUpStatus === 'overdue'" type="danger" size="small">逾期</el-tag>
+            <el-tag v-else-if="row.intent?.followUpStatus === 'today'" type="warning" size="small">今日</el-tag>
+            <el-tag v-if="row.intent?.manualOverride" type="success" size="small">人工修正</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="归属人" width="110">
@@ -156,6 +210,30 @@
             <el-descriptions-item label="风险" :span="2">{{ intentResult.risks.join('、') || '-' }}</el-descriptions-item>
             <el-descriptions-item label="下一步建议" :span="2">{{ intentResult.nextAction || '-' }}</el-descriptions-item>
           </el-descriptions>
+          <el-alert v-if="intentResult.followUpStatus === 'overdue'" title="建议跟进时间已逾期" type="error" :closable="false" style="margin-top: 12px" />
+          <div v-if="latestInputSummary" class="intent-input">最近一次输入：{{ latestInputSummary }}</div>
+          <el-divider />
+          <div class="feedback-panel">
+            <div class="feedback-title">人工反馈</div>
+            <el-radio-group v-model="feedback.feedbackType">
+              <el-radio value="accurate">准确</el-radio>
+              <el-radio value="partial">部分准确</el-radio>
+              <el-radio value="inaccurate">不准确</el-radio>
+            </el-radio-group>
+            <el-checkbox v-model="feedback.accepted">采纳下一步建议</el-checkbox>
+            <el-select v-model="feedback.manualIntentLevel" clearable placeholder="人工修正等级" style="width: 140px">
+              <el-option label="高意向" value="high" />
+              <el-option label="中意向" value="medium" />
+              <el-option label="低意向" value="low" />
+              <el-option label="未知" value="unknown" />
+            </el-select>
+            <el-input v-model="feedback.note" maxlength="1024" show-word-limit placeholder="备注（可选）" style="width: 240px" />
+            <el-button v-if="intentCustomer && store.hasPerm('crm:intent:feedback')" type="primary" @click="submitFeedback">提交反馈</el-button>
+          </div>
+          <el-alert v-if="compareResult?.previous" type="info" :closable="false" style="margin-top: 12px">
+            与上次结果相比：分数{{ compareResult.scoreDiff == null ? '无变化' : `${compareResult.scoreDiff > 0 ? '+' : ''}${compareResult.scoreDiff}` }}，
+            {{ compareResult.levelChanged ? '意向等级已变化' : '意向等级未变化' }}
+          </el-alert>
           <div class="intent-meta">
             分析时间：{{ intentResult.analyzedAt || '-' }} · 模型：{{ intentResult.provider || '-' }}/{{ intentResult.model || '-' }}
           </div>
@@ -175,6 +253,7 @@
         <el-button v-if="intentCustomer && store.hasPerm('crm:intent:analyze')" type="primary" :loading="analyzingId === intentCustomer.id" @click="onAnalyze(intentCustomer)">
           重新分析
         </el-button>
+        <el-button v-if="intentCustomer && store.hasPerm('crm:intent:analyze')" @click="onRetry">重试最近失败</el-button>
       </template>
     </el-dialog>
   </div>
@@ -191,9 +270,12 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  getCustomerIntent,
   analyzeCustomerIntent,
+  retryCustomerIntent,
+  submitCustomerIntentFeedback,
+  compareCustomerIntent,
   listCustomerIntentHistory,
+  batchAnalyzeCustomerIntent,
 } from '@/api/crm'
 import { listAllTenants } from '@/api/system'
 import type { Customer, CustomerIntent, CustomerIntentHistory, Tenant } from '@/types/api'
@@ -207,8 +289,24 @@ const tenantOptions = ref<Tenant[]>([])
 const loading = ref(false)
 const rows = ref<Customer[]>([])
 const total = ref(0)
+const selectedIds = ref<number[]>([])
 const onlyMine = ref(false)
-const query = reactive({ pageNum: 1, pageSize: 10, name: '', status: '', level: '', tenantId: undefined as number | undefined })
+const query = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  name: '',
+  status: '',
+  level: '',
+  tenantId: undefined as number | undefined,
+  intentLevel: '',
+  intentStatus: '',
+  minScore: undefined as number | undefined,
+  maxScore: undefined as number | undefined,
+  minConfidence: undefined as number | undefined,
+  followUpStatus: '',
+  analyzedWithin: '',
+  intentSort: '',
+})
 
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -221,6 +319,14 @@ const intentLoading = ref(false)
 const intentCustomer = ref<Customer | null>(null)
 const intentResult = ref<CustomerIntent | null>(null)
 const intentHistory = ref<CustomerIntentHistory[]>([])
+const latestInputSummary = ref('')
+const compareResult = ref<Awaited<ReturnType<typeof compareCustomerIntent>> | null>(null)
+const feedback = reactive({
+  feedbackType: 'accurate' as 'accurate' | 'partial' | 'inaccurate',
+  accepted: false,
+  manualIntentLevel: undefined as 'high' | 'medium' | 'low' | 'unknown' | undefined,
+  note: '',
+})
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
@@ -253,11 +359,7 @@ async function load(page?: number) {
     const data = await listCustomers({ ...query, mine: onlyMine.value ? '1' : '' })
     rows.value = data.records
     total.value = data.total
-    if (store.hasPerm('crm:intent:list')) {
-      await Promise.all(rows.value.map(async (row) => {
-        row.intent = await getCustomerIntent(row.id).catch(() => null)
-      }))
-    }
+    selectedIds.value = []
   } finally {
     loading.value = false
   }
@@ -268,9 +370,12 @@ async function openIntent(row: Customer) {
   intentVisible.value = true
   intentLoading.value = true
   try {
-    intentResult.value = row.intent ?? await getCustomerIntent(row.id)
+    intentResult.value = row.intent ?? null
     const history = await listCustomerIntentHistory(row.id, { pageNum: 1, pageSize: 10 }).catch(() => null)
     intentHistory.value = history?.records ?? []
+    latestInputSummary.value = intentHistory.value.find((item) => item.inputSummary)?.inputSummary ?? ''
+    compareResult.value = await compareCustomerIntent(row.id).catch(() => null)
+    resetFeedback()
   } finally {
     intentLoading.value = false
   }
@@ -285,6 +390,8 @@ async function onAnalyze(row: Customer) {
       intentResult.value = result
       const history = await listCustomerIntentHistory(row.id, { pageNum: 1, pageSize: 10 }).catch(() => null)
       intentHistory.value = history?.records ?? []
+      latestInputSummary.value = intentHistory.value.find((item) => item.inputSummary)?.inputSummary ?? ''
+      compareResult.value = await compareCustomerIntent(row.id).catch(() => null)
     } else {
       await openIntent(row)
     }
@@ -294,6 +401,68 @@ async function onAnalyze(row: Customer) {
   } finally {
     analyzingId.value = null
   }
+}
+
+async function onRetry() {
+  if (!intentCustomer.value) return
+  analyzingId.value = intentCustomer.value.id
+  try {
+    const result = await retryCustomerIntent(intentCustomer.value.id)
+    intentCustomer.value.intent = result
+    intentResult.value = result
+    const history = await listCustomerIntentHistory(result.customerId, { pageNum: 1, pageSize: 10 }).catch(() => null)
+    intentHistory.value = history?.records ?? []
+    compareResult.value = await compareCustomerIntent(result.customerId).catch(() => null)
+    ElMessage.success('已重新分析')
+  } finally {
+    analyzingId.value = null
+  }
+}
+
+async function submitFeedback() {
+  if (!intentCustomer.value) return
+  await submitCustomerIntentFeedback(intentCustomer.value.id, {
+    feedbackType: feedback.feedbackType,
+    accepted: feedback.accepted,
+    manualIntentLevel: feedback.manualIntentLevel,
+    note: feedback.note,
+  })
+  if (feedback.manualIntentLevel && intentResult.value) {
+    intentResult.value.manualOverride = true
+    intentResult.value.manualIntentLevel = feedback.manualIntentLevel
+    intentCustomer.value.intent = intentResult.value
+  }
+  ElMessage.success('反馈已提交')
+}
+
+function resetFeedback() {
+  feedback.feedbackType = 'accurate'
+  feedback.accepted = false
+  feedback.manualIntentLevel = undefined
+  feedback.note = ''
+}
+
+function onSelectionChange(selection: Customer[]) {
+  selectedIds.value = selection.map((item) => item.id)
+}
+
+async function onBatchAnalyze() {
+  const selected = selectedIds.value.length ? selectedIds.value : undefined
+  await ElMessageBox.confirm(
+    selected ? `确认提交 ${selected.length} 个客户的AI分析任务？` : '确认按当前筛选条件提交最多50个客户的AI分析任务？',
+    '批量AI分析',
+    { type: 'warning' },
+  )
+  const task = await batchAnalyzeCustomerIntent({
+    customerIds: selected,
+    intentLevel: selected ? undefined : query.intentLevel || undefined,
+    minScore: selected ? undefined : query.minScore,
+    maxScore: selected ? undefined : query.maxScore,
+    followUpStatus: selected ? undefined : query.followUpStatus || undefined,
+    limit: 50,
+  })
+  ElMessage.success(`已提交任务，共${task.totalCount}个客户`)
+  load()
 }
 
 watch(onlyMine, () => load(1))
@@ -373,5 +542,27 @@ onMounted(async () => {
   margin-top: 12px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.range-separator {
+  margin: 0 4px;
+  color: var(--el-text-color-secondary);
+}
+
+.intent-input {
+  margin-top: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.feedback-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.feedback-title {
+  font-weight: 600;
 }
 </style>

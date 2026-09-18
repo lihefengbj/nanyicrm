@@ -10,7 +10,12 @@ import type {
   ContractSavePayload,
   DashboardSummary,
   CustomerIntent,
+  CustomerIntentCompare,
+  CustomerIntentFeedbackPayload,
   CustomerIntentHistory,
+  CustomerIntentTask,
+  IntentMetrics,
+  IntentWorkbench,
   Opportunity,
   OpportunitySavePayload,
   PageQuery,
@@ -18,7 +23,22 @@ import type {
 } from '@/types/api'
 
 // ---- customer ----
-export function listCustomers(query: PageQuery & { name?: string; status?: string; level?: string; mine?: string; ownerId?: number; tenantId?: number }) {
+export function listCustomers(query: PageQuery & {
+  name?: string
+  status?: string
+  level?: string
+  mine?: string
+  ownerId?: number
+  tenantId?: number
+  intentLevel?: string
+  intentStatus?: string
+  minScore?: number
+  maxScore?: number
+  minConfidence?: number
+  followUpStatus?: string
+  intentSort?: string
+  analyzedWithin?: string
+}) {
   return get<PageResult<Customer>>('/crm/customer', { ...query })
 }
 export function listAllCustomers(tenantId?: number) {
@@ -39,8 +59,39 @@ export function getCustomerIntent(id: number) {
 export function analyzeCustomerIntent(id: number) {
   return post<CustomerIntent>(`/crm/customer/${id}/intent/analyze`)
 }
-export function listCustomerIntentHistory(id: number, query: PageQuery) {
+export function retryCustomerIntent(id: number) {
+  return post<CustomerIntent>(`/crm/customer/${id}/intent/retry`)
+}
+export function submitCustomerIntentFeedback(id: number, data: CustomerIntentFeedbackPayload) {
+  return post<{ id: number }>(`/crm/customer/${id}/intent/feedback`, data)
+}
+export function compareCustomerIntent(id: number) {
+  return get<CustomerIntentCompare>(`/crm/customer/${id}/intent/compare`)
+}
+export function listCustomerIntentHistory(id: number, query: PageQuery & { status?: string }) {
   return get<PageResult<CustomerIntentHistory>>(`/crm/customer/${id}/intent/history`, { ...query })
+}
+export function batchAnalyzeCustomerIntent(data: {
+  customerIds?: number[]
+  intentLevel?: string
+  minScore?: number
+  maxScore?: number
+  followUpStatus?: string
+  limit?: number
+}) {
+  return post<CustomerIntentTask>('/crm/customer/intent/batch', data)
+}
+export function getCustomerIntentTask(id: number) {
+  return get<CustomerIntentTask>(`/crm/customer/intent/tasks/${id}`)
+}
+export function cancelCustomerIntentTask(id: number) {
+  return post<CustomerIntentTask>(`/crm/customer/intent/tasks/${id}/cancel`)
+}
+export function getIntentWorkbench(tenantId?: number) {
+  return get<IntentWorkbench>('/crm/intent/workbench', tenantId ? { tenantId } : {})
+}
+export function getIntentMetrics(params?: { from?: string; to?: string; tenantId?: number }) {
+  return get<IntentMetrics>('/crm/intent/metrics', params)
 }
 
 // ---- contact ----

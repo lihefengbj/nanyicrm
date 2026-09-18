@@ -1,6 +1,6 @@
 basePath: /api/v1
 definitions:
-  common.TokenPair:
+  github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair:
     properties:
       accessToken:
         type: string
@@ -10,13 +10,13 @@ definitions:
       refreshToken:
         type: string
     type: object
-  system.ApiUpdateTitleRequest:
+  internal_modules_system.ApiUpdateTitleRequest:
     properties:
       title:
         maxLength: 64
         type: string
     type: object
-  system.LoginRequest:
+  internal_modules_system.LoginRequest:
     properties:
       pwd:
         type: string
@@ -26,7 +26,7 @@ definitions:
     - pwd
     - username
     type: object
-  system.RefreshRequest:
+  internal_modules_system.RefreshRequest:
     properties:
       refreshToken:
         type: string
@@ -50,12 +50,12 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/system.LoginRequest'
+          $ref: '#/definitions/internal_modules_system.LoginRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.TokenPair'
+            $ref: '#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair'
       summary: 登录，颁发 access/refresh token
       tags:
       - 认证
@@ -66,7 +66,7 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/system.RefreshRequest'
+          $ref: '#/definitions/internal_modules_system.RefreshRequest'
       responses:
         "200":
           description: OK
@@ -99,12 +99,12 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/system.RefreshRequest'
+          $ref: '#/definitions/internal_modules_system.RefreshRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.TokenPair'
+            $ref: '#/definitions/github_com_lihefengbj_nanyicrm_backend_internal_common.TokenPair'
       summary: 用 refresh token 轮换新的 token 对
       tags:
       - 认证
@@ -298,6 +298,34 @@ paths:
       summary: 手动分析客户意向
       tags:
       - CRM-客户意向
+  /crm/customer/{id}/intent/compare:
+    get:
+      description: 需要权限：crm:intent:compare
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询客户AI意向结果对比
+      tags:
+      - CRM-客户意向
+  /crm/customer/{id}/intent/feedback:
+    post:
+      description: 需要权限：crm:intent:feedback
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 提交客户AI意向反馈
+      tags:
+      - CRM-客户意向
   /crm/customer/{id}/intent/history:
     get:
       description: 需要权限：crm:intent:history
@@ -310,6 +338,20 @@ paths:
       security:
       - BearerAuth: []
       summary: 查询客户AI意向分析历史
+      tags:
+      - CRM-客户意向
+  /crm/customer/{id}/intent/retry:
+    post:
+      description: 需要权限：crm:intent:analyze
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 重试客户最近一次AI意向分析
       tags:
       - CRM-客户意向
   /crm/customer/all:
@@ -326,6 +368,48 @@ paths:
       summary: 全部客户（下拉用）
       tags:
       - CRM-客户
+  /crm/customer/intent/batch:
+    post:
+      description: 需要权限：crm:intent:batch；单次最多50个客户
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量提交客户AI意向分析
+      tags:
+      - CRM-客户意向
+  /crm/customer/intent/tasks/{id}:
+    get:
+      description: 需要权限：crm:intent:batch
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询批量AI意向任务进度
+      tags:
+      - CRM-客户意向
+  /crm/customer/intent/tasks/{id}/cancel:
+    post:
+      description: 需要权限：crm:intent:batch
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 取消尚未开始的批量AI意向任务
+      tags:
+      - CRM-客户意向
   /crm/follow:
     get:
       description: 需要权限：crm:follow:list
@@ -380,6 +464,34 @@ paths:
       summary: 编辑跟进记录（仅本人）
       tags:
       - CRM-跟进
+  /crm/intent/metrics:
+    get:
+      description: 需要权限：crm:intent:metrics；from/to 支持 RFC3339 或 YYYY-MM-DD
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: AI意向运营指标
+      tags:
+      - CRM-客户意向
+  /crm/intent/workbench:
+    get:
+      description: 需要权限：crm:intent:workbench
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: AI意向待跟进工作台
+      tags:
+      - CRM-客户意向
   /crm/opportunity:
     get:
       description: 需要权限：crm:opportunity:list
@@ -511,7 +623,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/system.ApiUpdateTitleRequest'
+          $ref: '#/definitions/internal_modules_system.ApiUpdateTitleRequest'
       responses:
         "200":
           description: OK

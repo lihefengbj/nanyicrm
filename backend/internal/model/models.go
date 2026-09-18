@@ -269,25 +269,27 @@ func (CrmContract) TableName() string { return "crm_contract" }
 // MySQL versions and allow the provider response to evolve independently.
 type CrmCustomerIntent struct {
 	Base
-	TenantID         uint64     `gorm:"uniqueIndex:uk_customer_intent_customer;index;default:0" json:"tenantId"`
-	CustomerID       uint64     `gorm:"uniqueIndex:uk_customer_intent_customer;not null" json:"customerId"`
-	IntentLevel      string     `gorm:"size:16;index;not null" json:"intentLevel"`
-	IntentScore      *int       `json:"intentScore"`
-	Confidence       *float64   `json:"confidence"`
-	Summary          string     `gorm:"type:text" json:"summary"`
-	Needs            string     `gorm:"type:text" json:"needs"`
-	PainPoints       string     `gorm:"type:text" json:"painPoints"`
-	Budget           string     `gorm:"size:255" json:"budget"`
-	PurchaseTimeline string     `gorm:"size:255" json:"purchaseTimeline"`
-	DecisionRole     string     `gorm:"size:255" json:"decisionRole"`
-	Risks            string     `gorm:"type:text" json:"risks"`
-	NextAction       string     `gorm:"type:text" json:"nextAction"`
-	SuggestedNextAt  *time.Time `json:"suggestedNextAt"`
-	AnalyzedAt       time.Time  `json:"analyzedAt"`
-	Provider         string     `gorm:"size:64" json:"provider"`
-	Model            string     `gorm:"size:128" json:"model"`
-	PromptVersion    string     `gorm:"size:32" json:"promptVersion"`
-	Status           string     `gorm:"size:16;index;not null" json:"status"`
+	TenantID          uint64     `gorm:"uniqueIndex:uk_customer_intent_customer;index;default:0" json:"tenantId"`
+	CustomerID        uint64     `gorm:"uniqueIndex:uk_customer_intent_customer;not null" json:"customerId"`
+	IntentLevel       string     `gorm:"size:16;index;not null" json:"intentLevel"`
+	IntentScore       *int       `json:"intentScore"`
+	Confidence        *float64   `json:"confidence"`
+	Summary           string     `gorm:"type:text" json:"summary"`
+	Needs             string     `gorm:"type:text" json:"needs"`
+	PainPoints        string     `gorm:"type:text" json:"painPoints"`
+	Budget            string     `gorm:"size:255" json:"budget"`
+	PurchaseTimeline  string     `gorm:"size:255" json:"purchaseTimeline"`
+	DecisionRole      string     `gorm:"size:255" json:"decisionRole"`
+	Risks             string     `gorm:"type:text" json:"risks"`
+	NextAction        string     `gorm:"type:text" json:"nextAction"`
+	SuggestedNextAt   *time.Time `json:"suggestedNextAt"`
+	AnalyzedAt        time.Time  `json:"analyzedAt"`
+	Provider          string     `gorm:"size:64" json:"provider"`
+	Model             string     `gorm:"size:128" json:"model"`
+	PromptVersion     string     `gorm:"size:32" json:"promptVersion"`
+	Status            string     `gorm:"size:16;index;not null" json:"status"`
+	ManualOverride    bool       `gorm:"default:false" json:"manualOverride"`
+	ManualIntentLevel string     `gorm:"size:16" json:"manualIntentLevel"`
 }
 
 func (CrmCustomerIntent) TableName() string { return "crm_customer_intent" }
@@ -311,6 +313,59 @@ type CrmCustomerIntentAnalysis struct {
 }
 
 func (CrmCustomerIntentAnalysis) TableName() string { return "crm_customer_intent_analysis" }
+
+// CrmCustomerIntentFeedback stores human review without overwriting the
+// original model output.
+type CrmCustomerIntentFeedback struct {
+	Base
+	TenantID          uint64 `gorm:"index;default:0" json:"tenantId"`
+	CustomerID        uint64 `gorm:"index;not null" json:"customerId"`
+	AnalysisID        uint64 `gorm:"index;not null" json:"analysisId"`
+	UserID            uint64 `gorm:"index;not null" json:"userId"`
+	FeedbackType      string `gorm:"size:24;not null" json:"feedbackType"`
+	Accepted          *bool  `json:"accepted"`
+	ManualIntentLevel string `gorm:"size:16" json:"manualIntentLevel"`
+	Note              string `gorm:"size:1024" json:"note"`
+}
+
+func (CrmCustomerIntentFeedback) TableName() string { return "crm_customer_intent_feedback" }
+
+// CrmCustomerIntentTask tracks a batch analysis request independently from
+// Redis, so progress and failures remain queryable after a restart.
+type CrmCustomerIntentTask struct {
+	Base
+	TenantID      uint64     `gorm:"index;default:0" json:"tenantId"`
+	CreatedBy     uint64     `gorm:"index;not null" json:"createdBy"`
+	Status        string     `gorm:"size:16;index;not null" json:"status"`
+	TotalCount    int        `json:"totalCount"`
+	PendingCount  int        `json:"pendingCount"`
+	RunningCount  int        `json:"runningCount"`
+	SuccessCount  int        `json:"successCount"`
+	FailedCount   int        `json:"failedCount"`
+	CanceledCount int        `json:"canceledCount"`
+	MaxAttempts   int        `json:"maxAttempts"`
+	ErrorMessage  string     `gorm:"size:1024" json:"errorMessage"`
+	StartedAt     *time.Time `json:"startedAt"`
+	FinishedAt    *time.Time `json:"finishedAt"`
+}
+
+func (CrmCustomerIntentTask) TableName() string { return "crm_customer_intent_task" }
+
+// CrmCustomerIntentTaskItem is one customer execution inside a batch task.
+type CrmCustomerIntentTaskItem struct {
+	Base
+	TaskID        uint64     `gorm:"uniqueIndex:uk_intent_task_customer;index;not null" json:"taskId"`
+	TenantID      uint64     `gorm:"uniqueIndex:uk_intent_task_customer;index;default:0" json:"tenantId"`
+	CustomerID    uint64     `gorm:"uniqueIndex:uk_intent_task_customer;not null" json:"customerId"`
+	TriggerUserID uint64     `gorm:"index;not null" json:"triggerUserId"`
+	Status        string     `gorm:"size:16;index;not null" json:"status"`
+	Attempts      int        `json:"attempts"`
+	ErrorMessage  string     `gorm:"size:1024" json:"errorMessage"`
+	StartedAt     *time.Time `json:"startedAt"`
+	FinishedAt    *time.Time `json:"finishedAt"`
+}
+
+func (CrmCustomerIntentTaskItem) TableName() string { return "crm_customer_intent_task_item" }
 
 // SysApi is one registered HTTP endpoint. The table is synchronized from the
 // Gin route table at boot (code is the source of truth); only Title is

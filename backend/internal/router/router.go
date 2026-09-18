@@ -164,8 +164,6 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("GET", "/crm/customer", "crm:customer:list", customer.List)
 	a.perm("GET", "/crm/customer/all", "crm:customer:list", customer.All)
 	a.perm("POST", "/crm/customer", "crm:customer:create", customer.Create)
-	a.perm("PUT", "/crm/customer/:id", "crm:customer:update", customer.Update)
-	a.perm("DELETE", "/crm/customer/:id", "crm:customer:delete", customer.Delete)
 
 	contact := crm.NewContactHandler(db)
 	a.perm("GET", "/crm/contact", "crm:contact:list", contact.List)
@@ -183,6 +181,7 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	if cfg.LLM.Enabled {
 		intentQueue = crm.NewIntentQueue(rdb, intent)
 		enqueueIntent = intentQueue.Enqueue
+		intent.SetTaskEnqueuer(intentQueue.EnqueueTask)
 	}
 
 	follow := crm.NewFollowUpHandler(db, enqueueIntent)
@@ -204,9 +203,19 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("PUT", "/crm/contract/:id", "crm:contract:update", contract.Update)
 	a.perm("DELETE", "/crm/contract/:id", "crm:contract:delete", contract.Delete)
 
+	a.perm("POST", "/crm/customer/intent/batch", "crm:intent:batch", intent.Batch)
+	a.perm("GET", "/crm/customer/intent/tasks/:id", "crm:intent:batch", intent.Task)
+	a.perm("POST", "/crm/customer/intent/tasks/:id/cancel", "crm:intent:batch", intent.CancelTask)
 	a.perm("GET", "/crm/customer/:id/intent", "crm:intent:list", intent.Current)
 	a.perm("GET", "/crm/customer/:id/intent/history", "crm:intent:history", intent.History)
+	a.perm("GET", "/crm/customer/:id/intent/compare", "crm:intent:list", intent.Compare)
 	a.perm("POST", "/crm/customer/:id/intent/analyze", "crm:intent:analyze", intent.Analyze)
+	a.perm("POST", "/crm/customer/:id/intent/retry", "crm:intent:analyze", intent.Retry)
+	a.perm("POST", "/crm/customer/:id/intent/feedback", "crm:intent:feedback", intent.Feedback)
+	a.perm("GET", "/crm/intent/workbench", "crm:intent:workbench", intent.Workbench)
+	a.perm("GET", "/crm/intent/metrics", "crm:intent:metrics", intent.Metrics)
+	a.perm("PUT", "/crm/customer/:id", "crm:customer:update", customer.Update)
+	a.perm("DELETE", "/crm/customer/:id", "crm:customer:delete", customer.Delete)
 
 	dashboard := crm.NewDashboardHandler(db)
 	a.open("GET", "/dashboard/summary", dashboard.Summary)
