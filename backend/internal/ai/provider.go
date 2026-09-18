@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,15 +15,36 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 )
 
-const PromptVersion = "v1"
+const (
+	PromptVersion  = "v1"
+	AdapterVersion = "openai-compatible-v1"
+)
 
 var ErrDisabled = errors.New("llm provider is disabled")
+
+const (
+	ErrorTypeConfig           = "config"
+	ErrorTypeTimeout          = "timeout"
+	ErrorTypeNetwork          = "network"
+	ErrorTypeRateLimit        = "rate_limit"
+	ErrorTypeAuthentication   = "authentication"
+	ErrorTypeModelNotFound    = "model_not_found"
+	ErrorTypeInvalidRequest   = "invalid_request"
+	ErrorTypeProvider         = "provider_error"
+	ErrorTypeResponseDecode   = "response_decode"
+	ErrorTypeResultDecode     = "result_decode"
+	ErrorTypeEmptyResponse    = "empty_response"
+	ErrorTypeResultValidation = "result_validation"
+)
 
 type IntentInput struct {
 	Customer      CustomerContext
 	Contacts      []ContactContext
 	FollowUps     []FollowUpContext
 	Opportunities []OpportunityContext
+	ReferenceTime time.Time `json:"referenceTime"`
+	Timezone      string    `json:"timezone"`
+	InputVersion  string    `json:"inputVersion"`
 }
 
 type CustomerContext struct {
@@ -69,21 +91,67 @@ type IntentResult struct {
 	SuggestedNextAt  *time.Time `json:"suggestedNextAt"`
 }
 
+type CallMetadata struct {
+	RequestID      string
+	ActualModel    string
+	InputTokens    int
+	OutputTokens   int
+	TotalTokens    int
+	ConfigVersion  string
+	AdapterVersion string
+}
+
+type IntentAnalysis struct {
+	Result   *IntentResult
+	Metadata CallMetadata
+}
+
+type ProviderError struct {
+	Type       string
+	Retryable  bool
+	StatusCode int
+	Err        error
+}
+
+func (e *ProviderError) Error() string {
+	if e.Err == nil {
+		return e.Type
+	}
+	return e.Err.Error()
+}
+
+func (e *ProviderError) Unwrap() error {
+	return e.Err
+}
+
+func ErrorInfo(err error) (string, bool) {
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) {
+		return providerErr.Type, providerErr.Retryable
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrorTypeTimeout, true
+	}
+	return ErrorTypeProvider, false
+}
+
 type Provider interface {
-	AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentResult, error)
+	AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentAnalysis, error)
 	Name() string
 	Model() string
 }
 
 type OpenAICompatibleProvider struct {
-	client      *http.Client
-	endpoint    string
-	apiKey      string
-	model       string
-	name        string
-	maxTokens   int
-	temperature float32
-	thinking    *thinkingConfig
+	client         *http.Client
+	endpoint       string
+	apiKey         string
+	model          string
+	name           string
+	maxTokens      int
+	temperature    float32
+	thinking       *thinkingConfig
+	responseFormat *responseFormat
+	configVersion  string
 }
 
 func NewProvider(cfg config.LLMConfig) Provider {
@@ -92,20 +160,30 @@ func NewProvider(cfg config.LLMConfig) Provider {
 		name = "openai-compatible"
 	}
 	var thinking *thinkingConfig
-	if strings.EqualFold(name, "deepseek") {
-		thinking = &thinkingConfig{Type: "disabled"}
+	thinkingMode := strings.TrimSpace(cfg.ThinkingMode)
+	if thinkingMode == "" && strings.EqualFold(name, "deepseek") {
+		thinkingMode = "disabled"
+	}
+	if thinkingMode != "" {
+		thinking = &thinkingConfig{Type: thinkingMode}
+	}
+	var format *responseFormat
+	if strings.TrimSpace(cfg.ResponseFormat) != "" {
+		format = &responseFormat{Type: cfg.ResponseFormat}
 	}
 	return &OpenAICompatibleProvider{
 		client: &http.Client{
 			Timeout: cfg.Timeout,
 		},
-		endpoint:    chatCompletionsEndpoint(cfg.BaseURL),
-		apiKey:      cfg.APIKey,
-		model:       cfg.Model,
-		name:        name,
-		maxTokens:   cfg.MaxTokens,
-		temperature: cfg.Temperature,
-		thinking:    thinking,
+		endpoint:       chatCompletionsEndpoint(cfg.BaseURL),
+		apiKey:         cfg.APIKey,
+		model:          cfg.Model,
+		name:           name,
+		maxTokens:      cfg.MaxTokens,
+		temperature:    cfg.Temperature,
+		thinking:       thinking,
+		responseFormat: format,
+		configVersion:  cfg.ConfigVersion,
 	}
 }
 
@@ -117,9 +195,9 @@ func (p *OpenAICompatibleProvider) Model() string {
 	return p.model
 }
 
-func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentResult, error) {
+func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentAnalysis, error) {
 	if strings.TrimSpace(p.endpoint) == "" || strings.TrimSpace(p.apiKey) == "" || strings.TrimSpace(p.model) == "" {
-		return nil, errors.New("llm base_url, api_key and model are required")
+		return nil, &ProviderError{Type: ErrorTypeConfig, Err: errors.New("llm base_url, api_key and model are required")}
 	}
 
 	payload := chatCompletionRequest{
@@ -134,52 +212,68 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 				Content: buildUserPrompt(input),
 			},
 		},
-		Temperature: p.temperature,
-		MaxTokens:   p.maxTokens,
-		ResponseFormat: &responseFormat{
-			Type: "json_object",
-		},
-		Thinking: p.thinking,
+		Temperature:    p.temperature,
+		MaxTokens:      p.maxTokens,
+		ResponseFormat: p.responseFormat,
+		Thinking:       p.thinking,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal llm request: %w", err)
+		return nil, &ProviderError{Type: ErrorTypeConfig, Err: fmt.Errorf("marshal llm request: %w", err)}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create llm request: %w", err)
+		return nil, &ProviderError{Type: ErrorTypeConfig, Err: fmt.Errorf("create llm request: %w", err)}
 	}
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call llm: %w", err)
+		errorType, retryable := classifyTransportError(err)
+		return nil, &ProviderError{Type: errorType, Retryable: retryable, Err: fmt.Errorf("call llm: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return nil, fmt.Errorf("read llm response: %w", err)
+		return nil, &ProviderError{Type: ErrorTypeNetwork, Retryable: true, Err: fmt.Errorf("read llm response: %w", err)}
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("llm returned %s: %s", resp.Status, truncate(string(responseBody), 800))
+		errorType, retryable := classifyHTTPStatus(resp.StatusCode)
+		return nil, &ProviderError{
+			Type:       errorType,
+			Retryable:  retryable,
+			StatusCode: resp.StatusCode,
+			Err:        fmt.Errorf("llm returned %s: %s", resp.Status, providerErrorMessage(responseBody)),
+		}
 	}
 
 	var completion chatCompletionResponse
 	if err := json.Unmarshal(responseBody, &completion); err != nil {
-		return nil, fmt.Errorf("decode llm response: %w", err)
+		return nil, &ProviderError{Type: ErrorTypeResponseDecode, Err: fmt.Errorf("decode llm response: %w", err)}
 	}
 	if len(completion.Choices) == 0 || strings.TrimSpace(completion.Choices[0].Message.Content) == "" {
-		return nil, errors.New("llm response has no message content")
+		return nil, &ProviderError{Type: ErrorTypeEmptyResponse, Err: errors.New("llm response has no message content")}
 	}
 
 	var result IntentResult
 	if err := json.Unmarshal([]byte(stripJSONFence(completion.Choices[0].Message.Content)), &result); err != nil {
-		return nil, fmt.Errorf("decode intent result: %w", err)
+		return nil, &ProviderError{Type: ErrorTypeResultDecode, Err: fmt.Errorf("decode intent result: %w", err)}
 	}
-	return &result, nil
+	return &IntentAnalysis{
+		Result: &result,
+		Metadata: CallMetadata{
+			RequestID:      completion.ID,
+			ActualModel:    completion.Model,
+			InputTokens:    completion.Usage.PromptTokens,
+			OutputTokens:   completion.Usage.CompletionTokens,
+			TotalTokens:    completion.Usage.TotalTokens,
+			ConfigVersion:  p.configVersion,
+			AdapterVersion: AdapterVersion,
+		},
+	}, nil
 }
 
 type chatCompletionRequest struct {
@@ -205,9 +299,16 @@ type thinkingConfig struct {
 }
 
 type chatCompletionResponse struct {
+	ID      string `json:"id"`
+	Model   string `json:"model"`
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 const systemPrompt = `你是一个严谨的B2B销售客户意向分析助手。
@@ -218,6 +319,7 @@ const systemPrompt = `你是一个严谨的B2B销售客户意向分析助手。
 - confidence 为 0 到 1 的数字；信息不足时为 null
 - needs、painPoints、risks 必须是字符串数组
 - suggestedNextAt 使用带时区的 ISO 8601 时间；无法判断时为 null
+- 所有相对时间判断必须以输入中的 referenceTime 和 timezone 为准
 - 预算、采购时间、决策角色未知时填写“未明确”
 建议输出字段：intentLevel、intentScore、confidence、summary、needs、painPoints、budget、purchaseTimeline、decisionRole、risks、nextAction、suggestedNextAt。`
 
@@ -253,4 +355,51 @@ func truncate(value string, max int) string {
 		return value
 	}
 	return value[:max]
+}
+
+func classifyTransportError(err error) (string, bool) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrorTypeTimeout, true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return ErrorTypeTimeout, true
+		}
+		return ErrorTypeNetwork, true
+	}
+	return ErrorTypeNetwork, true
+}
+
+func classifyHTTPStatus(status int) (string, bool) {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
+		if status == http.StatusTooManyRequests {
+			return ErrorTypeRateLimit, true
+		}
+		return ErrorTypeTimeout, true
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return ErrorTypeAuthentication, false
+	case http.StatusNotFound:
+		return ErrorTypeModelNotFound, false
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		return ErrorTypeInvalidRequest, false
+	default:
+		if status >= http.StatusInternalServerError {
+			return ErrorTypeProvider, true
+		}
+		return ErrorTypeProvider, false
+	}
+}
+
+func providerErrorMessage(body []byte) string {
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) == nil && strings.TrimSpace(payload.Error.Message) != "" {
+		return truncate(strings.TrimSpace(payload.Error.Message), 300)
+	}
+	return "provider request failed"
 }

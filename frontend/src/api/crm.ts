@@ -11,6 +11,7 @@ import type {
   DashboardSummary,
   CustomerIntent,
   CustomerIntentCompare,
+  CustomerIntentFeedback,
   CustomerIntentFeedbackPayload,
   CustomerIntentHistory,
   CustomerIntentTask,
@@ -63,7 +64,10 @@ export function retryCustomerIntent(id: number) {
   return post<CustomerIntent>(`/crm/customer/${id}/intent/retry`)
 }
 export function submitCustomerIntentFeedback(id: number, data: CustomerIntentFeedbackPayload) {
-  return post<{ id: number }>(`/crm/customer/${id}/intent/feedback`, data)
+  return post<{ id: number; appliedToCurrent: boolean }>(`/crm/customer/${id}/intent/feedback`, data)
+}
+export function listCustomerIntentFeedback(id: number, query: PageQuery & { analysisId?: number }) {
+  return get<PageResult<CustomerIntentFeedback>>(`/crm/customer/${id}/intent/feedback`, { ...query })
 }
 export function compareCustomerIntent(id: number) {
   return get<CustomerIntentCompare>(`/crm/customer/${id}/intent/compare`)
@@ -72,6 +76,7 @@ export function listCustomerIntentHistory(id: number, query: PageQuery & { statu
   return get<PageResult<CustomerIntentHistory>>(`/crm/customer/${id}/intent/history`, { ...query })
 }
 export function batchAnalyzeCustomerIntent(data: {
+  tenantId?: number
   customerIds?: number[]
   intentLevel?: string
   minScore?: number

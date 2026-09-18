@@ -107,8 +107,8 @@
         <el-table-column label="AI意向" width="120">
           <template #default="{ row }">
             <el-button v-if="row.intent" link type="primary" @click="openIntent(row)">
-              <el-tag :type="intentTag(row.intent.intentLevel)">
-                {{ intentText(row.intent.intentLevel) }}{{ row.intent.intentScore != null ? ` ${row.intent.intentScore}` : '' }}
+              <el-tag :type="intentTag(effectiveIntentLevel(row.intent))">
+                {{ intentText(effectiveIntentLevel(row.intent)) }}{{ !row.intent.manualOverride && row.intent.intentScore != null ? ` ${row.intent.intentScore}` : '' }}
               </el-tag>
             </el-button>
             <span v-else class="muted-text">未分析</span>
@@ -120,7 +120,9 @@
         <el-table-column label="归属人" width="110">
           <template #default="{ row }">{{ row.owner?.nickname || row.owner?.username || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="createdAt" label="创建时间" width="170" />
+        <el-table-column label="创建时间" width="170">
+          <template #default="{ row }">{{ formatBeijingTime(row.createdAt) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="310" fixed="right">
           <template #default="{ row }">
             <el-button v-if="store.hasPerm('crm:customer:update')" link type="primary" @click="openDialog(row)">编辑</el-button>
@@ -192,19 +194,22 @@
         <template v-else>
           <div class="intent-header">
             <el-tag :type="intentTag(intentResult.intentLevel)" size="large">
-              {{ intentText(intentResult.intentLevel) }}
+              AI判断：{{ intentText(intentResult.intentLevel) }}
             </el-tag>
             <span v-if="intentResult.intentScore != null" class="intent-score">{{ intentResult.intentScore }} 分</span>
             <span v-if="intentResult.confidence != null" class="muted-text">
               置信度 {{ Math.round(intentResult.confidence * 100) }}%
             </span>
+            <el-tag v-if="intentResult.manualOverride" :type="intentTag(effectiveIntentLevel(intentResult))" size="large">
+              当前有效：{{ intentText(effectiveIntentLevel(intentResult)) }}（人工）
+            </el-tag>
           </div>
           <el-descriptions :column="2" border>
             <el-descriptions-item label="分析摘要" :span="2">{{ intentResult.summary || '-' }}</el-descriptions-item>
             <el-descriptions-item label="预算">{{ intentResult.budget || '未明确' }}</el-descriptions-item>
             <el-descriptions-item label="采购时间">{{ intentResult.purchaseTimeline || '未明确' }}</el-descriptions-item>
             <el-descriptions-item label="决策角色">{{ intentResult.decisionRole || '未明确' }}</el-descriptions-item>
-            <el-descriptions-item label="建议跟进时间">{{ intentResult.suggestedNextAt || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="建议跟进时间">{{ formatBeijingTime(intentResult.suggestedNextAt) }}</el-descriptions-item>
             <el-descriptions-item label="需求" :span="2">{{ intentResult.needs.join('、') || '-' }}</el-descriptions-item>
             <el-descriptions-item label="客户痛点" :span="2">{{ intentResult.painPoints.join('、') || '-' }}</el-descriptions-item>
             <el-descriptions-item label="风险" :span="2">{{ intentResult.risks.join('、') || '-' }}</el-descriptions-item>
@@ -213,6 +218,20 @@
           <el-alert v-if="intentResult.followUpStatus === 'overdue'" title="建议跟进时间已逾期" type="error" :closable="false" style="margin-top: 12px" />
           <div v-if="latestInputSummary" class="intent-input">最近一次输入：{{ latestInputSummary }}</div>
           <el-divider />
+          <el-alert v-if="latestFeedback" type="success" :closable="false" class="latest-feedback">
+            <template #title>
+              最近反馈：{{ feedbackTypeText(latestFeedback.feedbackType) }}
+              · {{ latestFeedback.userName || `用户${latestFeedback.userId}` }}
+              · {{ formatBeijingTime(latestFeedback.createdAt) }}
+            </template>
+            <div>
+              建议采纳：{{ acceptedText(latestFeedback.accepted) }}
+              <span v-if="latestFeedback.manualIntentLevel">
+                · 人工意向：{{ intentText(latestFeedback.manualIntentLevel) }}
+              </span>
+              <span v-if="latestFeedback.note"> · 备注：{{ latestFeedback.note }}</span>
+            </div>
+          </el-alert>
           <div class="feedback-panel">
             <div class="feedback-title">人工反馈</div>
             <el-radio-group v-model="feedback.feedbackType">
@@ -230,18 +249,39 @@
             <el-input v-model="feedback.note" maxlength="1024" show-word-limit placeholder="备注（可选）" style="width: 240px" />
             <el-button v-if="intentCustomer && store.hasPerm('crm:intent:feedback')" type="primary" @click="submitFeedback">提交反馈</el-button>
           </div>
+          <el-collapse v-if="canViewFeedback" v-model="feedbackCollapseNames" class="feedback-history">
+            <el-collapse-item :title="`反馈历史（${feedbackTotal}）`" name="feedback">
+              <el-empty v-if="!feedbackHistory.length" description="暂无人工反馈" :image-size="60" />
+              <el-timeline v-else>
+                <el-timeline-item v-for="item in feedbackHistory" :key="item.id" :timestamp="formatBeijingTime(item.createdAt)">
+                  <div>
+                    {{ feedbackTypeText(item.feedbackType) }} · 建议采纳：{{ acceptedText(item.accepted) }}
+                    <span v-if="item.manualIntentLevel"> · 人工意向：{{ intentText(item.manualIntentLevel) }}</span>
+                  </div>
+                  <div class="muted-text">
+                    {{ item.userName || `用户${item.userId}` }}
+                    <span v-if="item.analysisAt"> · 对应分析：{{ formatBeijingTime(item.analysisAt) }}</span>
+                  </div>
+                  <div v-if="item.note" class="feedback-note">备注：{{ item.note }}</div>
+                </el-timeline-item>
+              </el-timeline>
+              <el-pagination v-if="feedbackTotal > feedbackPageSize" v-model:current-page="feedbackPage"
+                :page-size="feedbackPageSize" :total="feedbackTotal" small layout="prev, pager, next"
+                @current-change="loadFeedback" />
+            </el-collapse-item>
+          </el-collapse>
           <el-alert v-if="compareResult?.previous" type="info" :closable="false" style="margin-top: 12px">
             与上次结果相比：分数{{ compareResult.scoreDiff == null ? '无变化' : `${compareResult.scoreDiff > 0 ? '+' : ''}${compareResult.scoreDiff}` }}，
             {{ compareResult.levelChanged ? '意向等级已变化' : '意向等级未变化' }}
           </el-alert>
           <div class="intent-meta">
-            分析时间：{{ intentResult.analyzedAt || '-' }} · 模型：{{ intentResult.provider || '-' }}/{{ intentResult.model || '-' }}
+            分析时间：{{ formatBeijingTime(intentResult.analyzedAt) }} · 模型：{{ intentResult.provider || '-' }}/{{ intentResult.model || '-' }}
           </div>
         </template>
 
         <el-divider v-if="intentHistory.length">分析历史</el-divider>
         <el-timeline v-if="intentHistory.length">
-          <el-timeline-item v-for="item in intentHistory" :key="item.id" :timestamp="item.createdAt">
+          <el-timeline-item v-for="item in intentHistory" :key="item.id" :timestamp="formatBeijingTime(item.createdAt)">
             <span>{{ item.status === 'success' ? '分析成功' : item.status === 'running' ? '分析中' : '分析失败' }}</span>
             <span v-if="item.result">：{{ intentText(item.result.intentLevel) }}{{ item.result.intentScore != null ? ` ${item.result.intentScore}分` : '' }}</span>
             <span v-else-if="item.errorMessage" class="muted-text">：{{ item.errorMessage }}</span>
@@ -274,13 +314,15 @@ import {
   analyzeCustomerIntent,
   retryCustomerIntent,
   submitCustomerIntentFeedback,
+  listCustomerIntentFeedback,
   compareCustomerIntent,
   listCustomerIntentHistory,
   batchAnalyzeCustomerIntent,
 } from '@/api/crm'
 import { listAllTenants } from '@/api/system'
-import type { Customer, CustomerIntent, CustomerIntentHistory, Tenant } from '@/types/api'
+import type { Customer, CustomerIntent, CustomerIntentFeedback, CustomerIntentHistory, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
+import { formatBeijingTime } from '@/utils/datetime'
 
 const store = useUserStore()
 const router = useRouter()
@@ -322,6 +364,11 @@ const intentResult = ref<CustomerIntent | null>(null)
 const intentHistory = ref<CustomerIntentHistory[]>([])
 const latestInputSummary = ref('')
 const compareResult = ref<Awaited<ReturnType<typeof compareCustomerIntent>> | null>(null)
+const feedbackHistory = ref<CustomerIntentFeedback[]>([])
+const feedbackTotal = ref(0)
+const feedbackPage = ref(1)
+const feedbackPageSize = 10
+const feedbackCollapseNames = ref(['feedback'])
 const feedback = reactive({
   feedbackType: 'accurate' as 'accurate' | 'partial' | 'inaccurate',
   accepted: false,
@@ -352,6 +399,25 @@ function intentText(level: CustomerIntent['intentLevel']) {
 function intentTag(level: CustomerIntent['intentLevel']) {
   return level === 'high' ? 'danger' : level === 'medium' ? 'warning' : level === 'low' ? 'info' : ''
 }
+function effectiveIntentLevel(intent: CustomerIntent): CustomerIntent['intentLevel'] {
+  return intent.effectiveIntentLevel || (intent.manualOverride && intent.manualIntentLevel
+    ? intent.manualIntentLevel
+    : intent.intentLevel)
+}
+function feedbackTypeText(type: CustomerIntentFeedback['feedbackType']) {
+  return type === 'accurate' ? '准确' : type === 'partial' ? '部分准确' : '不准确'
+}
+function acceptedText(accepted?: boolean | null) {
+  return accepted == null ? '未填写' : accepted ? '是' : '否'
+}
+
+const latestFeedback = computed(() => feedbackHistory.value[0] ?? null)
+const canViewFeedback = computed(() =>
+  store.hasPerm('crm:intent:feedback') || store.hasPerm('crm:intent:feedback:list'),
+)
+const currentAnalysisId = computed(() =>
+  intentResult.value?.analysisId || intentHistory.value.find((item) => item.status === 'success' && item.result)?.id,
+)
 
 async function load(page?: number) {
   if (page) query.pageNum = page
@@ -379,6 +445,7 @@ async function openIntent(row: Customer) {
     intentHistory.value = history?.records ?? []
     latestInputSummary.value = intentHistory.value.find((item) => item.inputSummary)?.inputSummary ?? ''
     compareResult.value = await compareCustomerIntent(row.id).catch(() => null)
+    await loadFeedback(1)
     resetFeedback()
   } finally {
     intentLoading.value = false
@@ -425,18 +492,49 @@ async function onRetry() {
 
 async function submitFeedback() {
   if (!intentCustomer.value) return
-  await submitCustomerIntentFeedback(intentCustomer.value.id, {
+  const requestedManualIntentLevel = feedback.manualIntentLevel
+  const result = await submitCustomerIntentFeedback(intentCustomer.value.id, {
+    analysisId: currentAnalysisId.value,
     feedbackType: feedback.feedbackType,
     accepted: feedback.accepted,
     manualIntentLevel: feedback.manualIntentLevel,
     note: feedback.note,
   })
-  if (feedback.manualIntentLevel && intentResult.value) {
+  if (requestedManualIntentLevel && result.appliedToCurrent && intentResult.value) {
     intentResult.value.manualOverride = true
-    intentResult.value.manualIntentLevel = feedback.manualIntentLevel
+    intentResult.value.manualIntentLevel = requestedManualIntentLevel
+    intentResult.value.effectiveIntentLevel = requestedManualIntentLevel
     intentCustomer.value.intent = intentResult.value
   }
-  ElMessage.success('反馈已提交')
+  await loadFeedback(1)
+  resetFeedback()
+  if (requestedManualIntentLevel && !result.appliedToCurrent) {
+    ElMessage.warning('反馈已保存；当前已有更新的分析结果，人工修正未覆盖新结果')
+  } else {
+    ElMessage.success('反馈已提交')
+  }
+}
+
+async function loadFeedback(page = feedbackPage.value) {
+  feedbackPage.value = page
+  if (!intentCustomer.value || !canViewFeedback.value) {
+    feedbackHistory.value = []
+    feedbackTotal.value = 0
+    return
+  }
+  try {
+    const result = await listCustomerIntentFeedback(intentCustomer.value.id, {
+      pageNum: page,
+      pageSize: feedbackPageSize,
+    })
+    feedbackHistory.value = result.records ?? []
+    feedbackTotal.value = result.total ?? 0
+  } catch {
+    // The request interceptor already displays the backend error. Keep the
+    // dialog usable while avoiding a misleading empty-history success state.
+    feedbackHistory.value = []
+    feedbackTotal.value = 0
+  }
 }
 
 function resetFeedback() {
@@ -452,12 +550,29 @@ function onSelectionChange(selection: Customer[]) {
 
 async function onBatchAnalyze() {
   const selected = selectedIds.value.length ? selectedIds.value : undefined
+  let tenantId = query.tenantId
+  if (isPrivileged.value && !tenantId && selected) {
+    const selectedTenantIds = new Set(
+      rows.value
+        .filter((row) => selectedIds.value.includes(row.id))
+        .map((row) => row.tenantId)
+        .filter((id): id is number => !!id),
+    )
+    if (selectedTenantIds.size === 1) {
+      tenantId = [...selectedTenantIds][0]
+    }
+  }
+  if (isPrivileged.value && !tenantId) {
+    ElMessage.warning('平台用户批量分析请先选择租户，或仅选择同一租户的客户')
+    return
+  }
   await ElMessageBox.confirm(
     selected ? `确认提交 ${selected.length} 个客户的AI分析任务？` : '确认按当前筛选条件提交最多50个客户的AI分析任务？',
     '批量AI分析',
     { type: 'warning' },
   )
   const task = await batchAnalyzeCustomerIntent({
+    tenantId,
     customerIds: selected,
     intentLevel: selected ? undefined : query.intentLevel || undefined,
     minScore: selected ? undefined : query.minScore,
@@ -568,5 +683,15 @@ onMounted(async () => {
 
 .feedback-title {
   font-weight: 600;
+}
+
+.latest-feedback,
+.feedback-history {
+  margin-bottom: 12px;
+}
+
+.feedback-note {
+  margin-top: 4px;
+  white-space: pre-wrap;
 }
 </style>

@@ -25,9 +25,11 @@ func TestNewRegistersCustomerIntentRoutes(t *testing.T) {
 		"POST /api/v1/crm/customer/intent/batch",
 		"GET /api/v1/crm/customer/intent/tasks/:id",
 		"POST /api/v1/crm/customer/intent/tasks/:id/cancel",
+		"GET /api/v1/crm/customer/:id/intent/feedback",
 		"POST /api/v1/crm/customer/:id/intent/feedback",
 		"GET /api/v1/crm/intent/workbench",
 		"GET /api/v1/crm/intent/metrics",
+		"POST /api/v1/crm/intent/config/test",
 	} {
 		if !paths[route] {
 			t.Fatalf("route %s was not registered", route)

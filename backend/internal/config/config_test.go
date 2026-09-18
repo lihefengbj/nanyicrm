@@ -71,6 +71,36 @@ func TestValidateRejectsEnabledLLMWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidLLMCapabilityConfig(t *testing.T) {
+	cfg := defaults()
+	cfg.MySQL = []MySQLConfig{{Name: "default", DSN: "root:pwd@tcp(127.0.0.1:3306)/nanyicrm"}}
+	cfg.Redis.Addr = "127.0.0.1:6379"
+	cfg.LLM.Enabled = true
+	cfg.LLM.Provider = "deepseek"
+	cfg.LLM.BaseURL = "https://api.example.com"
+	cfg.LLM.APIKey = "test-key"
+	cfg.LLM.Model = "test-model"
+	cfg.LLM.ResponseFormat = "xml"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted unsupported LLM response format")
+	}
+}
+
+func TestValidateRequiresHTTPSForProductionLLM(t *testing.T) {
+	cfg := defaults()
+	cfg.App.Env = "prod"
+	cfg.MySQL = []MySQLConfig{{Name: "default", DSN: "root:pwd@tcp(127.0.0.1:3306)/nanyicrm"}}
+	cfg.Redis.Addr = "127.0.0.1:6379"
+	cfg.LLM.Enabled = true
+	cfg.LLM.Provider = "deepseek"
+	cfg.LLM.BaseURL = "http://api.example.com"
+	cfg.LLM.APIKey = "test-key"
+	cfg.LLM.Model = "test-model"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted non-HTTPS production LLM URL")
+	}
+}
+
 func TestProductionRequiresStrongSecrets(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

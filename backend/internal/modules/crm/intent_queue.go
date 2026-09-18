@@ -204,12 +204,20 @@ func (q *IntentQueue) processMessage(ctx context.Context, message redis.XMessage
 	if ctx.Err() != nil {
 		return
 	}
-	if task.Attempts >= 2 {
+	if !isRetryableIntentError(err) || task.Attempts >= 2 {
 		log.Printf("intent analysis failed tenant=%d customer=%d: %v", task.TenantID, task.CustomerID, err)
 		q.finishMessage(ctx, message.ID, task.DedupKey)
 		return
 	}
 	task.Attempts++
+	backoff := time.Duration(1<<task.Attempts) * time.Second
+	timer := time.NewTimer(backoff)
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return
+	case <-timer.C:
+	}
 	if retryErr := q.enqueueTask(ctx, task); retryErr != nil {
 		log.Printf("intent queue retry: %v", retryErr)
 		return

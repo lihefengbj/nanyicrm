@@ -211,9 +211,13 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("GET", "/crm/customer/:id/intent/compare", "crm:intent:list", intent.Compare)
 	a.perm("POST", "/crm/customer/:id/intent/analyze", "crm:intent:analyze", intent.Analyze)
 	a.perm("POST", "/crm/customer/:id/intent/retry", "crm:intent:analyze", intent.Retry)
+	a.handle("GET", "/crm/customer/:id/intent/feedback", "crm:intent:feedback|crm:intent:feedback:list",
+		middleware.RequireAnyPerm(db, "crm:intent:feedback", "crm:intent:feedback:list"),
+		intent.FeedbackHistory)
 	a.perm("POST", "/crm/customer/:id/intent/feedback", "crm:intent:feedback", intent.Feedback)
 	a.perm("GET", "/crm/intent/workbench", "crm:intent:workbench", intent.Workbench)
 	a.perm("GET", "/crm/intent/metrics", "crm:intent:metrics", intent.Metrics)
+	a.privilegedPerm("POST", "/crm/intent/config/test", "crm:intent:config", intent.ConfigTest)
 	a.perm("PUT", "/crm/customer/:id", "crm:customer:update", customer.Update)
 	a.perm("DELETE", "/crm/customer/:id", "crm:customer:delete", customer.Delete)
 

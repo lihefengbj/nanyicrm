@@ -5,7 +5,10 @@ import type { ApiResponse, TokenPair } from '@/types/api'
 
 const request = axios.create({
   baseURL: '/api/v1',
-  timeout: 15000,
+  // AI analysis is synchronous for the current phase. Keep this longer than
+  // the backend LLM timeout so a slow but valid provider response is not
+  // reported as a frontend timeout first.
+  timeout: 60000,
 })
 
 let refreshing: Promise<boolean> | null = null

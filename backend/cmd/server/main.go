@@ -84,8 +84,11 @@ func main() {
 		Handler:           r,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Manual AI analysis waits for the provider request, whose configured
+		// timeout is 30 seconds. Leave enough response time for DB persistence
+		// and JSON serialization after the provider returns.
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {

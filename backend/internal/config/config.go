@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,15 +57,18 @@ type JWTConfig struct {
 }
 
 type LLMConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	Provider    string        `yaml:"provider"`
-	BaseURL     string        `yaml:"base_url"`
-	APIKey      string        `yaml:"api_key"`
-	Model       string        `yaml:"model"`
-	Timeout     time.Duration `yaml:"-"`
-	TimeoutText string        `yaml:"timeout"`
-	MaxTokens   int           `yaml:"max_tokens"`
-	Temperature float32       `yaml:"temperature"`
+	Enabled        bool          `yaml:"enabled"`
+	Provider       string        `yaml:"provider"`
+	BaseURL        string        `yaml:"base_url"`
+	APIKey         string        `yaml:"api_key"`
+	Model          string        `yaml:"model"`
+	Timeout        time.Duration `yaml:"-"`
+	TimeoutText    string        `yaml:"timeout"`
+	MaxTokens      int           `yaml:"max_tokens"`
+	Temperature    float32       `yaml:"temperature"`
+	ConfigVersion  string        `yaml:"config_version"`
+	ResponseFormat string        `yaml:"response_format"`
+	ThinkingMode   string        `yaml:"thinking_mode"`
 }
 
 type LogConfig struct {
@@ -110,10 +114,12 @@ func defaults() *Config {
 		},
 		Redis: RedisConfig{Addr: "127.0.0.1:6379"},
 		LLM: LLMConfig{
-			Provider:    "openai-compatible",
-			TimeoutText: "30s",
-			MaxTokens:   1200,
-			Temperature: 0.2,
+			Provider:       "openai-compatible",
+			TimeoutText:    "30s",
+			MaxTokens:      1200,
+			Temperature:    0.2,
+			ConfigVersion:  "v1",
+			ResponseFormat: "json_object",
 		},
 		Log: LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
 		Bootstrap: BootstrapConfig{
@@ -149,6 +155,15 @@ func (c *Config) applyDefaults() {
 	c.JWT.RefreshTokenTTL = parseDuration(c.JWT.RefreshTTL, 7*24*time.Hour)
 	if c.LLM.Provider == "" {
 		c.LLM.Provider = "openai-compatible"
+	}
+	if c.LLM.ConfigVersion == "" {
+		c.LLM.ConfigVersion = "v1"
+	}
+	if c.LLM.ResponseFormat == "" {
+		c.LLM.ResponseFormat = "json_object"
+	}
+	if c.LLM.ThinkingMode == "" && strings.EqualFold(c.LLM.Provider, "deepseek") {
+		c.LLM.ThinkingMode = "disabled"
 	}
 	c.LLM.Timeout = parseDuration(c.LLM.TimeoutText, 30*time.Second)
 	if c.LLM.MaxTokens <= 0 {
@@ -221,6 +236,23 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.LLM.Model) == "" {
 			return fmt.Errorf("llm.model is required when llm.enabled=true")
 		}
+		baseURL, err := url.Parse(strings.TrimSpace(c.LLM.BaseURL))
+		if err != nil || baseURL.Host == "" || (baseURL.Scheme != "http" && baseURL.Scheme != "https") {
+			return fmt.Errorf("llm.base_url must be a valid http or https URL")
+		}
+		if c.App.Env == "prod" && baseURL.Scheme != "https" {
+			return fmt.Errorf("llm.base_url must use https in production")
+		}
+		switch c.LLM.ResponseFormat {
+		case "", "json_object":
+		default:
+			return fmt.Errorf("llm.response_format %q is unsupported", c.LLM.ResponseFormat)
+		}
+		switch c.LLM.ThinkingMode {
+		case "", "disabled", "enabled":
+		default:
+			return fmt.Errorf("llm.thinking_mode must be empty, disabled or enabled")
+		}
 	}
 	return nil
 }
@@ -260,5 +292,5 @@ func withTimeoutDefaults(dsn string) string {
 	if !strings.Contains(dsn, "?") {
 		sep = "?"
 	}
-	return dsn + sep + "timeout=10s&readTimeout=30s&writeTimeout=30s"
+	return dsn + sep + "timeout=5s&readTimeout=10s&writeTimeout=10s"
 }

@@ -36,6 +36,9 @@ llm:
   timeout: 30s
   max_tokens: 1200
   temperature: 0.2
+  config_version: "deepseek-flash-v1"
+  response_format: "json_object"
+  thinking_mode: "disabled"
 
 jwt:
   signing_key: "nanyicrm-dev-signing-key-change-me"   # change in production!

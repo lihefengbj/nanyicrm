@@ -14,6 +14,7 @@ import (
 )
 
 var ErrNoBatchCustomers = errors.New("no eligible customers for batch analysis")
+var ErrBatchTenantRequired = errors.New("tenantId is required for privileged batch analysis")
 
 type IntentBatchRequest struct {
 	TenantID       uint64   `json:"tenantId"`
@@ -75,6 +76,8 @@ func (h *IntentHandler) Batch(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, ErrNoBatchCustomers) {
 			common.FailMsg(c, common.CodeParamInvalid, "没有符合条件且未在分析中的客户")
+		} else if errors.Is(err, ErrBatchTenantRequired) {
+			common.FailMsg(c, common.CodeParamInvalid, "平台用户批量分析必须指定租户")
 		} else {
 			common.Fail(c, common.CodeParamInvalid)
 		}
@@ -209,7 +212,7 @@ func (h *IntentHandler) selectBatchCustomers(c *gin.Context, req IntentBatchRequ
 	tenantID := middleware.CurrentTenantID(c)
 	if middleware.IsPrivileged(c) {
 		if req.TenantID == 0 {
-			return 0, nil, errors.New("tenantId is required for privileged batch analysis")
+			return 0, nil, ErrBatchTenantRequired
 		}
 		tenantID = req.TenantID
 	}
@@ -233,7 +236,7 @@ func (h *IntentHandler) selectBatchCustomers(c *gin.Context, req IntentBatchRequ
 		if req.IntentLevel == "none" {
 			query = query.Where("ci.id IS NULL")
 		} else {
-			query = query.Where("ci.intent_level = ?", req.IntentLevel)
+			query = query.Where(effectiveIntentLevelSQL("ci")+" = ?", req.IntentLevel)
 		}
 	}
 	if req.MinScore != nil {

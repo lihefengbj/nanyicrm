@@ -1,0 +1,13 @@
+ALTER TABLE crm_customer_intent_analysis
+  DROP INDEX idx_intent_analysis_input_hash,
+  DROP INDEX idx_intent_analysis_error_type,
+  DROP INDEX idx_intent_analysis_model_config_version,
+  DROP COLUMN input_hash,
+  DROP COLUMN error_type,
+  DROP COLUMN provider_request_id,
+  DROP COLUMN total_tokens,
+  DROP COLUMN output_tokens,
+  DROP COLUMN input_tokens,
+  DROP COLUMN adapter_version,
+  DROP COLUMN model_config_version,
+  DROP COLUMN actual_model;

@@ -1,6 +1,7 @@
 package seed
 
 import (
+	"errors"
 	"log"
 
 	"golang.org/x/crypto/bcrypt"
@@ -68,40 +69,45 @@ func ensureIntentMenus(db *gorm.DB) error {
 		{ParentID: customerMenu.ID, Title: "分析客户意向", Type: 3, Perms: "crm:intent:analyze", Sort: 11, Visible: 1, Status: 1},
 		{ParentID: customerMenu.ID, Title: "查看分析历史", Type: 3, Perms: "crm:intent:history", Sort: 12, Visible: 1, Status: 1},
 		{ParentID: customerMenu.ID, Title: "提交AI意向反馈", Type: 3, Perms: "crm:intent:feedback", Sort: 13, Visible: 1, Status: 1},
-		{ParentID: customerMenu.ID, Title: "批量分析客户意向", Type: 3, Perms: "crm:intent:batch", Sort: 14, Visible: 1, Status: 1},
-		{ParentID: customerMenu.ID, Title: "AI意向工作台", Type: 3, Perms: "crm:intent:workbench", Sort: 15, Visible: 1, Status: 1},
-		{ParentID: customerMenu.ID, Title: "查看AI意向指标", Type: 3, Perms: "crm:intent:metrics", Sort: 16, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "查看AI意向反馈", Type: 3, Perms: "crm:intent:feedback:list", Sort: 14, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "批量分析客户意向", Type: 3, Perms: "crm:intent:batch", Sort: 15, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "AI意向工作台", Type: 3, Perms: "crm:intent:workbench", Sort: 16, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "查看AI意向指标", Type: 3, Perms: "crm:intent:metrics", Sort: 17, Visible: 1, Status: 1},
+		{ParentID: customerMenu.ID, Title: "测试AI模型配置", Type: 3, Perms: "crm:intent:config", Sort: 18, Visible: 1, Status: 1},
 	}
-	var grant []model.SysMenu
 	for _, button := range buttons {
-		var count int64
-		if err := db.Model(&model.SysMenu{}).Where("perms = ?", button.Perms).Count(&count).Error; err != nil {
-			return err
-		}
-		if count == 0 {
+		var existing model.SysMenu
+		if err := db.Where("perms = ?", button.Perms).First(&existing).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
 			if err := db.Create(&button).Error; err != nil {
 				return err
 			}
-			grant = append(grant, button)
+			existing = button
+		}
+		for _, code := range []string{"admin", "superAdmin"} {
+			var role model.SysRole
+			if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue
+				}
+				return err
+			}
+			var links int64
+			if err := db.Model(&model.SysRoleMenu{}).
+				Where("role_id = ? AND menu_id = ?", role.ID, existing.ID).
+				Count(&links).Error; err != nil {
+				return err
+			}
+			if links == 0 {
+				if err := db.Create(&model.SysRoleMenu{RoleID: role.ID, MenuID: existing.ID}).Error; err != nil {
+					return err
+				}
+			}
 		}
 	}
-	if len(grant) == 0 {
-		return nil
-	}
-	for _, code := range []string{"admin", "superAdmin"} {
-		var role model.SysRole
-		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
-			continue
-		}
-		links := make([]model.SysRoleMenu, 0, len(grant))
-		for _, menu := range grant {
-			links = append(links, model.SysRoleMenu{RoleID: role.ID, MenuID: menu.ID})
-		}
-		if err := db.Create(&links).Error; err != nil {
-			return err
-		}
-	}
-	log.Println("seed: customer intent permissions created")
+	log.Println("seed: customer intent permissions ensured")
 	return nil
 }
 

@@ -80,7 +80,7 @@ func (h *CustomerHandler) List(c *gin.Context) {
 		if value == "none" {
 			query = query.Where("ci.id IS NULL")
 		} else {
-			query = query.Where("ci.intent_level = ?", value)
+			query = query.Where(effectiveIntentLevelSQL("ci")+" = ?", value)
 		}
 	}
 	if value := strings.TrimSpace(c.Query("intentStatus")); value != "" {
@@ -189,6 +189,12 @@ func customerIntentOrder(sort string) string {
 	default:
 		return "crm_customer.id DESC"
 	}
+}
+
+func effectiveIntentLevelSQL(alias string) string {
+	return "CASE WHEN " + alias + ".manual_override = 1 " +
+		"AND " + alias + ".manual_intent_level IN ('high','medium','low','unknown') " +
+		"THEN " + alias + ".manual_intent_level ELSE " + alias + ".intent_level END"
 }
 
 func customerTenantIDs(customers []model.CrmCustomer) []uint64 {

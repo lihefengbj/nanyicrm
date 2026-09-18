@@ -286,7 +286,9 @@ export interface CustomerIntent {
   id: number
   tenantId: number
   customerId: number
+  analysisId: number
   intentLevel: 'high' | 'medium' | 'low' | 'unknown'
+  effectiveIntentLevel: 'high' | 'medium' | 'low' | 'unknown'
   intentScore?: number
   confidence?: number
   summary: string
@@ -319,7 +321,16 @@ export interface CustomerIntentHistory {
   errorMessage: string
   provider: string
   model: string
+  actualModel: string
+  modelConfigVersion: string
+  adapterVersion: string
   promptVersion: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  providerRequestId: string
+  errorType: string
+  inputHash: string
   costMillis: number
   inputSummary: string
   analyzedAt?: string
@@ -332,6 +343,20 @@ export interface CustomerIntentFeedbackPayload {
   accepted?: boolean
   manualIntentLevel?: 'high' | 'medium' | 'low' | 'unknown'
   note?: string
+}
+
+export interface CustomerIntentFeedback {
+  id: number
+  customerId: number
+  analysisId: number
+  userId: number
+  userName: string
+  feedbackType: 'accurate' | 'partial' | 'inaccurate'
+  accepted?: boolean | null
+  manualIntentLevel?: 'high' | 'medium' | 'low' | 'unknown' | ''
+  note: string
+  analysisAt?: string
+  createdAt: string
 }
 
 export interface CustomerIntentCompare {
@@ -395,6 +420,8 @@ export interface IntentWorkbench {
 export interface IntentMetricGroup {
   provider: string
   model: string
+  actualModel: string
+  modelConfigVersion: string
   promptVersion: string
   count: number
 }
@@ -413,6 +440,9 @@ export interface IntentMetrics {
   successRate: number
   averageCostMillis: number
   p95CostMillis: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
   byProvider: IntentMetricGroup[]
   failureReasons: IntentFailureGroup[]
   levelDistribution: Record<string, number>

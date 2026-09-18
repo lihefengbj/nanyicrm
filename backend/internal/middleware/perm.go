@@ -56,3 +56,49 @@ func RequirePerm(db *gorm.DB, perm string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// RequireAnyPerm allows a route when the current user holds at least one of
+// the supplied permissions.
+func RequireAnyPerm(db *gorm.DB, perms ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := CurrentUserID(c)
+		if userID == 0 {
+			common.Abort(c, common.CodeUnauthorized)
+			return
+		}
+		if IsSuper(c) {
+			c.Next()
+			return
+		}
+
+		var roles []model.SysRole
+		if err := db.Joins("JOIN sys_user_role ur ON ur.role_id = sys_role.id").
+			Where("ur.user_id = ? AND sys_role.status = 1", userID).
+			Find(&roles).Error; err != nil {
+			common.Abort(c, common.CodeDBError)
+			return
+		}
+		if len(roles) == 0 {
+			common.Abort(c, common.CodeForbidden)
+			return
+		}
+
+		roleIDs := make([]uint64, 0, len(roles))
+		for _, role := range roles {
+			roleIDs = append(roleIDs, role.ID)
+		}
+		var count int64
+		if err := db.Model(&model.SysMenu{}).
+			Joins("JOIN sys_role_menu rm ON rm.menu_id = sys_menu.id").
+			Where("rm.role_id IN ? AND sys_menu.perms IN ? AND sys_menu.status = 1", roleIDs, perms).
+			Count(&count).Error; err != nil {
+			common.Abort(c, common.CodeDBError)
+			return
+		}
+		if count == 0 {
+			common.Abort(c, common.CodeForbidden)
+			return
+		}
+		c.Next()
+	}
+}

@@ -35,10 +35,12 @@ type IntentWorkbenchResponse struct {
 }
 
 type IntentMetricGroup struct {
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	PromptVersion string `json:"promptVersion"`
-	Count         int64  `json:"count"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	ActualModel        string `json:"actualModel"`
+	ModelConfigVersion string `json:"modelConfigVersion"`
+	PromptVersion      string `json:"promptVersion"`
+	Count              int64  `json:"count"`
 }
 
 type IntentFailureGroup struct {
@@ -55,6 +57,9 @@ type IntentMetricsResponse struct {
 	SuccessRate       float64              `json:"successRate"`
 	AverageCostMillis float64              `json:"averageCostMillis"`
 	P95CostMillis     int64                `json:"p95CostMillis"`
+	InputTokens       int64                `json:"inputTokens"`
+	OutputTokens      int64                `json:"outputTokens"`
+	TotalTokens       int64                `json:"totalTokens"`
 	ByProvider        []IntentMetricGroup  `json:"byProvider"`
 	FailureReasons    []IntentFailureGroup `json:"failureReasons"`
 	LevelDistribution map[string]int64     `json:"levelDistribution"`
@@ -82,7 +87,8 @@ func (h *IntentHandler) Workbench(c *gin.Context) {
 	query := h.db.Model(&model.CrmCustomerIntent{}).Where("tenant_id = ?", tenantID)
 
 	var response IntentWorkbenchResponse
-	if err := query.Where("intent_level = ?", "high").Count(&response.HighIntentCount).Error; err != nil {
+	if err := query.Where(effectiveIntentLevelSQL("crm_customer_intent")+" = ?", "high").
+		Count(&response.HighIntentCount).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
@@ -155,25 +161,29 @@ func (h *IntentHandler) Metrics(c *gin.Context) {
 	}
 
 	type aggregate struct {
-		Provider      string
-		Model         string
-		PromptVersion string
-		Count         int64
+		Provider           string
+		Model              string
+		ActualModel        string
+		ModelConfigVersion string
+		PromptVersion      string
+		Count              int64
 	}
 	var groups []aggregate
-	if err := query.Select("provider, model, prompt_version, COUNT(*) AS count").
-		Group("provider, model, prompt_version").Order("count DESC").Scan(&groups).Error; err != nil {
+	if err := query.Select("provider, model, actual_model, model_config_version, prompt_version, COUNT(*) AS count").
+		Group("provider, model, actual_model, model_config_version, prompt_version").Order("count DESC").Scan(&groups).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
 	for _, group := range groups {
 		response.ByProvider = append(response.ByProvider, IntentMetricGroup{
-			Provider: group.Provider, Model: group.Model, PromptVersion: group.PromptVersion, Count: group.Count,
+			Provider: group.Provider, Model: group.Model, ActualModel: group.ActualModel,
+			ModelConfigVersion: group.ModelConfigVersion, PromptVersion: group.PromptVersion, Count: group.Count,
 		})
 	}
 
 	var rows []model.CrmCustomerIntentAnalysis
-	if err := query.Select("cost_millis, status, error_message").Order("cost_millis ASC").Find(&rows).Error; err != nil {
+	if err := query.Select("cost_millis, status, error_type, error_message, input_tokens, output_tokens, total_tokens").
+		Order("cost_millis ASC").Find(&rows).Error; err != nil {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
@@ -182,6 +192,9 @@ func (h *IntentHandler) Metrics(c *gin.Context) {
 		costs := make([]int64, 0, len(rows))
 		for _, row := range rows {
 			total += row.CostMillis
+			response.InputTokens += int64(row.InputTokens)
+			response.OutputTokens += int64(row.OutputTokens)
+			response.TotalTokens += int64(row.TotalTokens)
 			costs = append(costs, row.CostMillis)
 		}
 		response.AverageCostMillis = float64(total) / float64(len(rows))
@@ -342,6 +355,9 @@ func failureGroups(rows []model.CrmCustomerIntentAnalysis) []IntentFailureGroup 
 			continue
 		}
 		reason := strings.TrimSpace(row.ErrorMessage)
+		if row.ErrorType != "" {
+			reason = row.ErrorType
+		}
 		if reason == "" {
 			reason = "unknown"
 		}

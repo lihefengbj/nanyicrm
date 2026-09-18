@@ -24,6 +24,9 @@ llm:
   timeout: 30s
   max_tokens: 1200
   temperature: 0.2
+  config_version: "${LLM_CONFIG_VERSION}"
+  response_format: "${LLM_RESPONSE_FORMAT}"
+  thinking_mode: "${LLM_THINKING_MODE}"
 jwt:
   signing_key: "${JWT_SIGNING_KEY}"
   access_ttl: 2h
