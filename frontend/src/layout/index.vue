@@ -67,7 +67,7 @@ const isSuper = computed(() => store.profile?.isSuper ?? false)
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
     try {
-      await logout(store.refreshToken)
+      await logout()
     } catch {
       // best effort
     }

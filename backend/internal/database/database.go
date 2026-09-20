@@ -85,6 +85,9 @@ func tuneMySQLDSN(raw string) (string, error) {
 	if parsed.WriteTimeout == 0 {
 		parsed.WriteTimeout = 10 * time.Second
 	}
+	// Versioned migrations contain multiple SQL statements and are executed
+	// through the same connection pool during startup.
+	parsed.MultiStatements = true
 	parsed.CheckConnLiveness = true
 	return parsed.FormatDSN(), nil
 }

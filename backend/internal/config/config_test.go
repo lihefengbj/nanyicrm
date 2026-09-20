@@ -62,6 +62,18 @@ func TestLoadIntentRetentionDays(t *testing.T) {
 	}
 }
 
+func TestLoadIntentArchiveDays(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  archive_days: 365\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONFIG_PATH", path)
+	if got := Load().LLM.ArchiveDays; got != 365 {
+		t.Fatalf("intent archive days = %d, want 365", got)
+	}
+}
+
 func TestLoadIntentPricing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

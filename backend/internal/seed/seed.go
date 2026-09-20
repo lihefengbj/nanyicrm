@@ -41,6 +41,9 @@ func Run(db *gorm.DB, bootstrap config.BootstrapConfig) error {
 	if err := ensureIntentMenus(db); err != nil {
 		return err
 	}
+	if err := ensureAIModelMenu(db); err != nil {
+		return err
+	}
 	if err := ensureSalesMenus(db); err != nil {
 		return err
 	}
@@ -52,6 +55,48 @@ func Run(db *gorm.DB, bootstrap config.BootstrapConfig) error {
 	}
 	if err := ensureApiMenu(db); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensureAIModelMenu(db *gorm.DB) error {
+	const pagePerm = "system:ai:model:list"
+	var menu model.SysMenu
+	err := db.Where("perms = ? AND type = 2", pagePerm).First(&menu).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		var system model.SysMenu
+		if err := db.Where("path = ? AND type = 1", "/system").First(&system).Error; err != nil {
+			return nil
+		}
+		menu = model.SysMenu{
+			ParentID: system.ID, Title: "AI模型治理", Type: 2, Path: "ai-model",
+			Component: "system/ai-model/index", Perms: pagePerm, Sort: 9,
+			Visible: 1, Status: 1,
+		}
+		if err := db.Create(&menu).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return err
+		}
+		var links int64
+		if err := db.Model(&model.SysRoleMenu{}).
+			Where("role_id = ? AND menu_id = ?", role.ID, menu.ID).Count(&links).Error; err != nil {
+			return err
+		}
+		if links == 0 {
+			if err := db.Create(&model.SysRoleMenu{RoleID: role.ID, MenuID: menu.ID}).Error; err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

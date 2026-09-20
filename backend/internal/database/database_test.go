@@ -29,6 +29,9 @@ func TestTuneMySQLDSNAddsConnectionSafetyDefaults(t *testing.T) {
 	if !parsed.CheckConnLiveness {
 		t.Fatal("CheckConnLiveness = false, want true")
 	}
+	if !parsed.MultiStatements {
+		t.Fatal("MultiStatements = false, want true for versioned migrations")
+	}
 }
 
 func TestTuneMySQLDSNPreservesExplicitTimeouts(t *testing.T) {

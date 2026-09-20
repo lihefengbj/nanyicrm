@@ -17,6 +17,8 @@ import type {
   CustomerIntentTask,
   IntentMetrics,
   IntentWorkbench,
+  AIModelChange,
+  AIModelConfig,
   Opportunity,
   OpportunitySavePayload,
   PageQuery,
@@ -97,6 +99,34 @@ export function getIntentWorkbench(tenantId?: number) {
 }
 export function getIntentMetrics(params?: { from?: string; to?: string; tenantId?: number }) {
   return get<IntentMetrics>('/crm/intent/metrics', params)
+}
+
+export function listAIModelConfigs(query?: PageQuery) {
+  return get<PageResult<AIModelConfig>>('/crm/intent/model-config', query ? { ...query } : undefined)
+}
+
+export function createAIModelConfig(data: Omit<AIModelConfig, 'id' | 'status' | 'canaryPercent' | 'qualityPassed' | 'qualitySummary' | 'qualityMetrics' | 'qualityCheckedAt' | 'activatedAt' | 'createdAt'>) {
+  return post<AIModelConfig>('/crm/intent/model-config', data)
+}
+
+export function runAIModelQualityGate(id: number) {
+  return post<{ passed: boolean; config: AIModelConfig }>(`/crm/intent/model-config/${id}/quality-gate`)
+}
+
+export function setAIModelCanary(id: number, canaryPercent: number, reason?: string) {
+  return post<{ status: string; canaryPercent: number }>(`/crm/intent/model-config/${id}/canary`, { canaryPercent, reason })
+}
+
+export function activateAIModel(id: number, reason?: string) {
+  return post<{ status: string; configId: number }>(`/crm/intent/model-config/${id}/activate`, { reason })
+}
+
+export function rollbackAIModel(targetConfigId?: number, reason?: string) {
+  return post<{ status: string; configId: number }>('/crm/intent/model-config/rollback', { targetConfigId, reason })
+}
+
+export function listAIModelChanges(configId?: number) {
+  return get<AIModelChange[]>('/crm/intent/model-config/changes', configId ? { configId } : undefined)
 }
 
 // ---- contact ----

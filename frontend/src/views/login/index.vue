@@ -70,8 +70,8 @@ async function onSubmit() {
   if (!valid) return
   loading.value = true
   try {
-    const tokens = await login(form.username, form.pwd)
-    store.setTokens(tokens)
+    await login(form.username, form.pwd)
+    store.setAuthenticated()
     store.setProfile(await fetchProfile())
     ElMessage.success("登录成功")
     const redirect = (route.query.redirect as string) || "/"

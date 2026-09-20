@@ -32,6 +32,11 @@ const (
 func JWTAuth(db *gorm.DB, signingKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
+		if header == "" {
+			if cookie, err := c.Cookie("nanyicrm_access"); err == nil && cookie != "" {
+				header = "Bearer " + cookie
+			}
+		}
 		if header == "" || !strings.HasPrefix(header, "Bearer ") {
 			common.Abort(c, common.CodeUnauthorized)
 			return

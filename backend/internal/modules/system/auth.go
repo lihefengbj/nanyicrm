@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -16,11 +17,14 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/observability"
 )
 
 const refreshTokenKeyPrefix = "auth:refresh:"
 const loginAttemptKeyPrefix = "auth:login-attempt:"
 const maxLoginAttempts = 10
+const accessCookieName = "nanyicrm_access"
+const refreshCookieName = "nanyicrm_refresh"
 
 var rotateRefreshTokenScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -49,13 +53,54 @@ func (h *AuthHandler) recordLoginFailure(ctx context.Context, key string) {
 }
 
 type AuthHandler struct {
-	db  *gorm.DB
-	rdb *redis.Client
-	cfg *config.Config
+	db      *gorm.DB
+	rdb     *redis.Client
+	cfg     *config.Config
+	alerts  *observability.AlertManager
+	metrics *observability.Metrics
 }
 
 func NewAuthHandler(db *gorm.DB, rdb *redis.Client, cfg *config.Config) *AuthHandler {
 	return &AuthHandler{db: db, rdb: rdb, cfg: cfg}
+}
+
+func (h *AuthHandler) SetObservability(metrics *observability.Metrics, alerts *observability.AlertManager) {
+	h.metrics = metrics
+	h.alerts = alerts
+}
+
+func (h *AuthHandler) markLoginFailure(ctx context.Context, key, username, ip, reason string) {
+	h.recordLoginFailure(ctx, key)
+	if h.alerts != nil {
+		h.alerts.LoginFailure(ctx, username, ip, reason)
+	} else if h.metrics != nil {
+		h.metrics.IncLoginFailure()
+	}
+}
+
+func (h *AuthHandler) secureCookies() bool {
+	return h.cfg != nil && h.cfg.App.Env == "prod"
+}
+
+func (h *AuthHandler) setSessionCookies(c *gin.Context, pair *common.TokenPair) {
+	if pair == nil {
+		return
+	}
+	secure := h.secureCookies()
+	writeSessionCookie(c, accessCookieName, pair.AccessToken, int(h.cfg.JWT.AccessTokenTTL.Seconds()), "/api/v1", secure)
+	writeSessionCookie(c, refreshCookieName, pair.RefreshToken, int(h.cfg.JWT.RefreshTokenTTL.Seconds()), "/api/v1/auth", secure)
+}
+
+func clearSessionCookies(c *gin.Context, secure bool) {
+	writeSessionCookie(c, accessCookieName, "", -1, "/api/v1", secure)
+	writeSessionCookie(c, refreshCookieName, "", -1, "/api/v1/auth", secure)
+}
+
+func writeSessionCookie(c *gin.Context, name, value string, maxAge int, path string, secure bool) {
+	c.Writer.Header().Add("Set-Cookie", (&http.Cookie{
+		Name: name, Value: value, MaxAge: maxAge, Path: path,
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+	}).String())
 }
 
 type LoginRequest struct {
@@ -87,13 +132,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if count, err := h.rdb.Get(ctx, attemptKey).Int(); err == nil && count >= maxLoginAttempts {
 		loginLog.Success, loginLog.Message = false, "too many attempts"
 		h.db.Create(&loginLog)
+		if h.alerts != nil {
+			h.alerts.LoginFailure(ctx, req.Username, loginLog.IP, "too many attempts")
+		} else if h.metrics != nil {
+			h.metrics.IncLoginFailure()
+		}
 		common.FailMsg(c, common.CodeLoginFailed, "登录尝试过多，请稍后再试")
 		return
 	}
 
 	var user model.SysUser
 	if err := h.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
-		h.recordLoginFailure(ctx, attemptKey)
+		h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "user not found")
 		loginLog.Success, loginLog.Message = false, "user not found"
 		h.db.Create(&loginLog)
 		common.Fail(c, common.CodeLoginFailed)
@@ -101,13 +151,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	loginLog.TenantID = user.TenantID
 	if bcrypt.CompareHashAndPassword([]byte(user.PwdHash), []byte(req.Pwd)) != nil {
-		h.recordLoginFailure(ctx, attemptKey)
+		h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "bad credential")
 		loginLog.Success, loginLog.Message = false, "bad credential"
 		h.db.Create(&loginLog)
 		common.Fail(c, common.CodeLoginFailed)
 		return
 	}
 	if user.Status != 1 {
+		h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "account disabled")
 		loginLog.Success, loginLog.Message = false, "account disabled"
 		h.db.Create(&loginLog)
 		common.Fail(c, common.CodeAccountDisabled)
@@ -117,18 +168,21 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if user.TenantID != 0 {
 		var tenant model.SysTenant
 		if err := h.db.First(&tenant, user.TenantID).Error; err != nil {
+			h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "tenant missing")
 			loginLog.Success, loginLog.Message = false, "tenant missing"
 			h.db.Create(&loginLog)
 			common.Fail(c, common.CodeTenantNotFound)
 			return
 		}
 		if tenant.Status != 1 {
+			h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "tenant disabled")
 			loginLog.Success, loginLog.Message = false, "tenant disabled"
 			h.db.Create(&loginLog)
 			common.Fail(c, common.CodeTenantDisabled)
 			return
 		}
 		if tenant.ExpireAt != nil && tenant.ExpireAt.Before(time.Now()) {
+			h.markLoginFailure(ctx, attemptKey, req.Username, loginLog.IP, "tenant expired")
 			loginLog.Success, loginLog.Message = false, "tenant expired"
 			h.db.Create(&loginLog)
 			common.Fail(c, common.CodeTenantExpired)
@@ -150,11 +204,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	loginLog.Success, loginLog.Message = true, "login ok"
 	h.db.Create(&loginLog)
 	h.rdb.Del(ctx, attemptKey)
-	common.OK(c, pair)
+	if h.metrics != nil {
+		h.metrics.IncLoginSuccess()
+	}
+	h.setSessionCookies(c, pair)
+	common.OK(c, gin.H{"authenticated": true, "expiresIn": pair.ExpiresIn})
 }
 
 type RefreshRequest struct {
-	RefreshToken string `json:"refreshToken" binding:"required"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 // Refresh 刷新令牌
@@ -166,7 +224,14 @@ type RefreshRequest struct {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.Fail(c, common.CodeParamInvalid)
+		// Empty bodies are valid when the HttpOnly refresh cookie is used.
+		req = RefreshRequest{}
+	}
+	if req.RefreshToken == "" {
+		req.RefreshToken, _ = c.Cookie(refreshCookieName)
+	}
+	if req.RefreshToken == "" {
+		common.Fail(c, common.CodeUnauthorized)
 		return
 	}
 	claims, err := common.ParseRefreshToken(h.cfg.JWT.SigningKey, req.RefreshToken)
@@ -175,9 +240,30 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	var user model.SysUser
+	if err := h.db.Select("id", "username", "tenant_id", "status").First(&user, claims.UserID).Error; err != nil {
+		common.Fail(c, common.CodeUnauthorized)
+		return
+	}
+	if user.Status != 1 {
+		common.Fail(c, common.CodeAccountDisabled)
+		return
+	}
+	if user.TenantID != 0 {
+		var tenant model.SysTenant
+		if err := h.db.Select("id", "status", "expire_at").First(&tenant, user.TenantID).Error; err != nil {
+			common.Fail(c, common.CodeUnauthorized)
+			return
+		}
+		if !tenant.Usable() {
+			common.Fail(c, common.CodeUnauthorized)
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
-	pair, err := common.GenerateTokenPair(h.cfg.JWT.SigningKey, h.cfg.JWT.AccessTokenTTL, h.cfg.JWT.RefreshTokenTTL, claims.UserID, claims.Username)
+	pair, err := common.GenerateTokenPair(h.cfg.JWT.SigningKey, h.cfg.JWT.AccessTokenTTL, h.cfg.JWT.RefreshTokenTTL, user.ID, user.Username)
 	if err != nil {
 		common.Fail(c, common.CodeInternalError)
 		return
@@ -199,7 +285,8 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		common.Fail(c, common.CodeUnauthorized)
 		return
 	}
-	common.OK(c, pair)
+	h.setSessionCookies(c, pair)
+	common.OK(c, gin.H{"authenticated": true, "expiresIn": pair.ExpiresIn})
 }
 
 // Logout 登出
@@ -216,6 +303,14 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		defer cancel()
 		h.rdb.Del(ctx, refreshTokenKey(req.RefreshToken))
 	}
+	if req.RefreshToken == "" {
+		if cookie, err := c.Cookie(refreshCookieName); err == nil && cookie != "" {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+			defer cancel()
+			h.rdb.Del(ctx, refreshTokenKey(cookie))
+		}
+	}
+	clearSessionCookies(c, h.secureCookies())
 	common.OK(c, nil)
 }
 

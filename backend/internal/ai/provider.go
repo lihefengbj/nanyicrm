@@ -94,6 +94,8 @@ type IntentResult struct {
 
 type CallMetadata struct {
 	RequestID            string
+	ConfiguredProvider   string
+	ConfiguredModel      string
 	ActualModel          string
 	InputTokens          int
 	InputCacheHitTokens  int
@@ -101,6 +103,7 @@ type CallMetadata struct {
 	OutputTokens         int
 	TotalTokens          int
 	ConfigVersion        string
+	PromptVersion        string
 	AdapterVersion       string
 }
 
@@ -155,6 +158,7 @@ type OpenAICompatibleProvider struct {
 	thinking       *thinkingConfig
 	responseFormat *responseFormat
 	configVersion  string
+	promptVersion  string
 }
 
 func NewProvider(cfg config.LLMConfig) Provider {
@@ -187,6 +191,7 @@ func NewProvider(cfg config.LLMConfig) Provider {
 		thinking:       thinking,
 		responseFormat: format,
 		configVersion:  cfg.ConfigVersion,
+		promptVersion:  cfg.PromptVersion,
 	}
 }
 
@@ -269,6 +274,8 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 		Result: &result,
 		Metadata: CallMetadata{
 			RequestID:            completion.ID,
+			ConfiguredProvider:   p.name,
+			ConfiguredModel:      p.model,
 			ActualModel:          completion.Model,
 			InputTokens:          completion.Usage.PromptTokens,
 			InputCacheHitTokens:  completion.Usage.InputCacheHitTokens(),
@@ -276,6 +283,7 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 			OutputTokens:         completion.Usage.CompletionTokens,
 			TotalTokens:          completion.Usage.TotalTokens,
 			ConfigVersion:        p.configVersion,
+			PromptVersion:        p.promptVersion,
 			AdapterVersion:       AdapterVersion,
 		},
 	}, nil

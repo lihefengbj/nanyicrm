@@ -3,9 +3,13 @@ package database
 import (
 	"fmt"
 
+	"github.com/golang-migrate/migrate/v4"
+	migrateiofs "github.com/golang-migrate/migrate/v4/database/mysql"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"gorm.io/gorm"
 
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/migrations"
 )
 
 // AutoMigrate keeps the schema in sync for development. SQL migration files
@@ -24,6 +28,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SysDictItem{},
 		&model.SysOperLog{},
 		&model.SysLoginLog{},
+		&model.SysAIModelConfig{},
+		&model.SysAIModelChange{},
 		&model.SysApi{},
 		&model.CrmCustomer{},
 		&model.CrmContact{},
@@ -35,6 +41,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.CrmCustomerIntentFeedback{},
 		&model.CrmCustomerIntentTask{},
 		&model.CrmCustomerIntentTaskItem{},
+		&model.CrmCustomerIntentAnalysisArchive{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -74,6 +81,37 @@ func AutoMigrate(db *gorm.DB) error {
 		`).Error; err != nil {
 			return fmt.Errorf("create active contract code index: %w", err)
 		}
+	}
+	return nil
+}
+
+// RunVersionedMigrations applies the embedded immutable SQL migrations.
+// Production uses this path exclusively; it never calls GORM AutoMigrate.
+func RunVersionedMigrations(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("versioned migrate: database is nil")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("versioned migrate: get sql db: %w", err)
+	}
+	driver, err := migrateiofs.WithInstance(sqlDB, &migrateiofs.Config{})
+	if err != nil {
+		return fmt.Errorf("versioned migrate: mysql driver: %w", err)
+	}
+	source, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		return fmt.Errorf("versioned migrate: source: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", source, "mysql", driver)
+	if err != nil {
+		return fmt.Errorf("versioned migrate: initialize: %w", err)
+	}
+	defer func() {
+		_, _ = m.Close()
+	}()
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("versioned migrate: up: %w", err)
 	}
 	return nil
 }

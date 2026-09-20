@@ -1,8 +1,18 @@
 -- Phase two: human feedback, batch analysis tasks and task items.
 
-ALTER TABLE crm_customer_intent
-  ADD COLUMN manual_override BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN manual_intent_level VARCHAR(16) NULL;
+SET @sql = IF(
+  EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'crm_customer_intent' AND column_name = 'manual_override'),
+  'SELECT 1',
+  'ALTER TABLE crm_customer_intent ADD COLUMN manual_override BOOLEAN NOT NULL DEFAULT FALSE'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'crm_customer_intent' AND column_name = 'manual_intent_level'),
+  'SELECT 1',
+  'ALTER TABLE crm_customer_intent ADD COLUMN manual_intent_level VARCHAR(16) NULL'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS crm_customer_intent_feedback (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

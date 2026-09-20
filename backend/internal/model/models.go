@@ -176,6 +176,57 @@ type SysLoginLog struct {
 
 func (SysLoginLog) TableName() string { return "sys_login_log" }
 
+type SysAIModelConfig struct {
+	Base
+	Name             string     `gorm:"size:64;not null" json:"name"`
+	Provider         string     `gorm:"size:64;not null" json:"provider"`
+	BaseURL          string     `gorm:"size:255;not null" json:"baseUrl"`
+	Model            string     `gorm:"size:128;not null" json:"model"`
+	ConfigVersion    string     `gorm:"size:64;uniqueIndex;not null" json:"configVersion"`
+	PromptVersion    string     `gorm:"size:32;not null" json:"promptVersion"`
+	ResponseFormat   string     `gorm:"size:32" json:"responseFormat"`
+	ThinkingMode     string     `gorm:"size:16" json:"thinkingMode"`
+	MaxTokens        int        `json:"maxTokens"`
+	Temperature      float32    `json:"temperature"`
+	Status           string     `gorm:"size:16;index;not null" json:"status"` // draft, approved, active, canary, retired
+	CanaryPercent    int        `json:"canaryPercent"`
+	QualityPassed    bool       `json:"qualityPassed"`
+	QualitySummary   string     `gorm:"type:text" json:"qualitySummary"`
+	QualityMetrics   string     `gorm:"type:text" json:"qualityMetrics"`
+	QualityCheckedAt *time.Time `json:"qualityCheckedAt"`
+	ActivatedAt      *time.Time `json:"activatedAt"`
+}
+
+func (SysAIModelConfig) TableName() string { return "sys_ai_model_config" }
+
+type SysAIModelChange struct {
+	ID             uint64    `gorm:"primaryKey" json:"id"`
+	ConfigID       uint64    `gorm:"index;not null" json:"configId"`
+	FromConfigID   uint64    `json:"fromConfigId"`
+	ToConfigID     uint64    `json:"toConfigId"`
+	ActorID        uint64    `gorm:"index" json:"actorId"`
+	Action         string    `gorm:"size:32;not null" json:"action"`
+	Reason         string    `gorm:"size:512" json:"reason"`
+	QualitySummary string    `gorm:"type:text" json:"qualitySummary"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+func (SysAIModelChange) TableName() string { return "sys_ai_model_change" }
+
+type CrmCustomerIntentAnalysisArchive struct {
+	ID                 uint64    `gorm:"primaryKey" json:"id"`
+	OriginalAnalysisID uint64    `gorm:"uniqueIndex;not null" json:"originalAnalysisId"`
+	TenantID           uint64    `gorm:"index;not null" json:"tenantId"`
+	CustomerID         uint64    `gorm:"index;not null" json:"customerId"`
+	Payload            string    `gorm:"type:longtext;not null" json:"payload"`
+	CreatedAt          time.Time `json:"createdAt"`
+	ArchivedAt         time.Time `gorm:"index" json:"archivedAt"`
+}
+
+func (CrmCustomerIntentAnalysisArchive) TableName() string {
+	return "crm_customer_intent_analysis_archive"
+}
+
 // CrmCustomer is a customer profile owned by a tenant. OwnerID points to the
 // sys_user responsible for it (data permission: privileged users see all,
 // tenant users see their tenant's, and can filter down to their own).

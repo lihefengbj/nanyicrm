@@ -3,6 +3,7 @@
 
 app:
   env: dev               # dev / test / prod；prod 时关闭 /swagger 接口文档
+  auto_migrate: true
 
 server:
   port: "8080"
@@ -37,9 +38,11 @@ llm:
   max_tokens: 1200
   temperature: 0.2
   config_version: "deepseek-flash-v1"
+  prompt_version: "v1"
   response_format: "json_object"
   thinking_mode: "disabled"
   retention_days: 0       # AI input/result snapshots to retain; 0 disables automatic cleanup
+  archive_days: 90        # archived AI analysis records to retain after cleanup
   pricing:
     currency: "CNY"
     mode: "auto"             # auto or unified
@@ -77,3 +80,13 @@ log:
   dir: log               # log output directory (relative to backend workdir)
   file: server.log       # base name; actual file is server_yyyymmdd.log, rotated daily
   retain_days: 30        # days to keep daily log files, 0 keeps forever
+
+alerts:
+  enabled: false
+  webhook_url: ""
+  login_failure_threshold: 5
+  window: 10m
+
+metrics:
+  enabled: true
+  token: ""

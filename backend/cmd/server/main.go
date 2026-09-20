@@ -14,6 +14,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/database"
 	"github.com/lihefengbj/nanyicrm/backend/internal/logger"
+	"github.com/lihefengbj/nanyicrm/backend/internal/modules/crm"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
 	"github.com/lihefengbj/nanyicrm/backend/internal/retention"
 	"github.com/lihefengbj/nanyicrm/backend/internal/router"
@@ -69,14 +70,21 @@ func main() {
 		log.Fatalf("redis: %v", err)
 	}
 	defer rdb.Close()
-	if err := database.AutoMigrate(db); err != nil {
-		log.Fatalf("migrate: %v", err)
+	if cfg.App.AutoMigrate {
+		if err := database.AutoMigrate(db); err != nil {
+			log.Fatalf("auto migrate: %v", err)
+		}
+	} else if err := database.RunVersionedMigrations(db); err != nil {
+		log.Fatalf("versioned migrate: %v", err)
+	}
+	if err := crm.EnsureDefaultModelConfig(db, cfg.LLM); err != nil {
+		log.Fatalf("model config: %v", err)
 	}
 	if err := seed.Run(db, cfg.Bootstrap); err != nil {
 		log.Fatalf("seed: %v", err)
 	}
 
-	r, apiRegistry, intentQueue := router.New(db, rdb, cfg)
+	r, apiRegistry, intentQueue, metrics := router.New(db, rdb, cfg)
 	system.SyncApis(db, apiRegistry)
 	log.Printf("nanyicrm backend listening on :%s (%d mysql connection(s))", cfg.Server.Port, len(dbs))
 
@@ -101,7 +109,23 @@ func main() {
 	if intentQueue != nil {
 		go intentQueue.Run(signalCtx)
 	}
-	retention.StartIntentCleanup(signalCtx, db, cfg.LLM.RetentionDays)
+	retention.StartIntentCleanupWithArchiveReport(
+		signalCtx,
+		db,
+		cfg.LLM.RetentionDays,
+		cfg.LLM.ArchiveDays,
+		func(report retention.Report) {
+			metrics.AddArchiveRows(report.ArchivedAnalyses)
+			metrics.AddCleanupRows(
+				report.RedactedAnalyses +
+					report.DeletedAnalyses +
+					report.DeletedFeedback +
+					report.DeletedTaskItems +
+					report.DeletedTasks +
+					report.DeletedArchives,
+			)
+		},
+	)
 	select {
 	case <-signalCtx.Done():
 		log.Printf("shutdown signal received")

@@ -18,6 +18,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/crm"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
+	"github.com/lihefengbj/nanyicrm/backend/internal/observability"
 	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
@@ -69,14 +70,26 @@ func handlerName(h gin.HandlerFunc) string {
 // New builds the Gin engine and returns it together with the API registry
 // collected during wiring. main.go passes the registry to system.SyncApis
 // once the database is ready.
-func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry, *crm.IntentQueue) {
+func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []system.ApiEntry, *crm.IntentQueue, *observability.Metrics) {
 	r := gin.New()
+	metrics := observability.NewMetrics()
 	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
 		panic("invalid trusted proxies: " + err.Error())
 	}
 	r.Use(gin.Recovery(), middleware.CORS(cfg.Server.AllowedOrigins))
+	r.Use(func(c *gin.Context) {
+		metrics.IncHTTPRequest()
+		c.Next()
+		if c.Writer.Status() >= 400 {
+			metrics.IncHTTPError()
+		}
+	})
 
 	r.GET("/healthz", func(c *gin.Context) {
+		if db == nil || rdb == nil {
+			c.JSON(503, gin.H{"status": "unavailable"})
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 		sqlDB, err := db.DB()
@@ -85,6 +98,37 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 			return
 		}
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/livez", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/readyz", func(c *gin.Context) {
+		if db == nil || rdb == nil {
+			c.JSON(503, gin.H{"status": "unavailable", "mysql": false, "redis": false})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		sqlDB, err := db.DB()
+		mysqlOK := err == nil && sqlDB.PingContext(ctx) == nil
+		redisOK := rdb.Ping(ctx).Err() == nil
+		if !mysqlOK || !redisOK {
+			c.JSON(503, gin.H{"status": "unavailable", "mysql": mysqlOK, "redis": redisOK})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ok", "mysql": true, "redis": true})
+	})
+	r.GET("/metrics", func(c *gin.Context) {
+		if !cfg.Metrics.Enabled {
+			c.Status(404)
+			return
+		}
+		provided := c.GetHeader("X-Metrics-Token")
+		if cfg.Metrics.Token != "" && !observability.MetricsTokenMatches(cfg.Metrics.Token, provided) {
+			c.Status(401)
+			return
+		}
+		c.Data(200, "text/plain; version=0.0.4; charset=utf-8", []byte(metrics.Render()))
 	})
 
 	// Swagger UI is available outside production only.
@@ -98,14 +142,15 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	pub := &registrar{group: v1, db: db, items: &registry}
 
 	auth := system.NewAuthHandler(db, rdb, cfg)
+	auth.SetObservability(metrics, observability.NewAlertManager(cfg.Alerts, rdb, metrics))
 	pub.open("POST", "/auth/login", auth.Login)
 	pub.open("POST", "/auth/refresh", auth.Refresh)
+	pub.open("POST", "/auth/logout", auth.Logout)
 
 	authed := v1.Group("")
 	authed.Use(middleware.JWTAuth(db, cfg.JWT.SigningKey), middleware.OperLog(db))
 	a := &registrar{group: authed, db: db, items: &registry}
 
-	a.open("POST", "/auth/logout", auth.Logout)
 	a.open("GET", "/auth/profile", auth.Profile)
 
 	user := system.NewUserHandler(db)
@@ -180,10 +225,11 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 
 	var intentProvider ai.Provider
 	if cfg.LLM.Enabled {
-		intentProvider = ai.NewProvider(cfg.LLM)
+		intentProvider = crm.NewGovernedProvider(db, cfg.LLM)
 	}
 	intent := crm.NewIntentHandler(db, cfg.LLM.Enabled, intentProvider, quotaSvc)
 	intent.SetPricing(cfg.LLM.Pricing)
+	intent.SetMetrics(metrics)
 	var intentQueue *crm.IntentQueue
 	var enqueueIntent crm.IntentEnqueuer
 	if cfg.LLM.Enabled {
@@ -226,11 +272,19 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 	a.perm("GET", "/crm/intent/workbench", "crm:intent:workbench", intent.Workbench)
 	a.perm("GET", "/crm/intent/metrics", "crm:intent:metrics", intent.Metrics)
 	a.privilegedPerm("POST", "/crm/intent/config/test", "crm:intent:config", intent.ConfigTest)
+	modelConfig := crm.NewModelConfigHandler(db, cfg.LLM, cfg.App.Env == "prod")
+	a.privilegedPerm("GET", "/crm/intent/model-config", "crm:intent:config", modelConfig.List)
+	a.privilegedPerm("POST", "/crm/intent/model-config", "crm:intent:config", modelConfig.Create)
+	a.privilegedPerm("POST", "/crm/intent/model-config/:id/quality-gate", "crm:intent:config", modelConfig.QualityGate)
+	a.privilegedPerm("POST", "/crm/intent/model-config/:id/canary", "crm:intent:config", modelConfig.Canary)
+	a.privilegedPerm("POST", "/crm/intent/model-config/:id/activate", "crm:intent:config", modelConfig.Activate)
+	a.privilegedPerm("POST", "/crm/intent/model-config/rollback", "crm:intent:config", modelConfig.Rollback)
+	a.privilegedPerm("GET", "/crm/intent/model-config/changes", "crm:intent:config", modelConfig.Changes)
 	a.perm("PUT", "/crm/customer/:id", "crm:customer:update", customer.Update)
 	a.perm("DELETE", "/crm/customer/:id", "crm:customer:delete", customer.Delete)
 
 	dashboard := crm.NewDashboardHandler(db)
 	a.open("GET", "/dashboard/summary", dashboard.Summary)
 
-	return r, registry, intentQueue
+	return r, registry, intentQueue, metrics
 }

@@ -1,7 +1,7 @@
 import axios, { AxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
-import type { ApiResponse, TokenPair } from '@/types/api'
+import type { ApiResponse } from '@/types/api'
 
 const request = axios.create({
   baseURL: '/api/v1',
@@ -9,6 +9,7 @@ const request = axios.create({
   // the backend LLM timeout so a slow but valid provider response is not
   // reported as a frontend timeout first.
   timeout: 60000,
+  withCredentials: true,
 })
 
 let refreshing: Promise<boolean> | null = null
@@ -18,14 +19,14 @@ let refreshing: Promise<boolean> | null = null
 const AUTH_CODES = new Set([2001, 2002])
 
 async function tryRefresh(): Promise<boolean> {
-  const store = useUserStore()
-  if (!store.refreshToken) return false
   try {
-    const resp = await axios.post<ApiResponse<TokenPair>>('/api/v1/auth/refresh', {
-      refreshToken: store.refreshToken,
-    })
-    if (resp.data.code === 0 && resp.data.data) {
-      store.setTokens(resp.data.data)
+    const resp = await axios.post<ApiResponse<{ authenticated: boolean }>>(
+      '/api/v1/auth/refresh',
+      undefined,
+      { withCredentials: true },
+    )
+    if (resp.data.code === 0 && resp.data.data?.authenticated) {
+      useUserStore().setAuthenticated()
       return true
     }
   } catch {
@@ -34,10 +35,14 @@ async function tryRefresh(): Promise<boolean> {
   return false
 }
 
+function isSessionEndpoint(url?: string) {
+  return /\/auth\/(?:login|refresh|logout)(?:$|[?#])/.test(url ?? '')
+}
+
 async function handleAuthFailure(
   config: AxiosRequestConfig & { _retried?: boolean },
 ): Promise<AxiosResponse> {
-  if (!config._retried && !config.url?.includes('/auth/')) {
+  if (!config._retried && !isSessionEndpoint(config.url)) {
     config._retried = true
     refreshing = refreshing ?? tryRefresh()
     const ok = await refreshing
@@ -55,10 +60,6 @@ async function handleAuthFailure(
 }
 
 request.interceptors.request.use((config) => {
-  const store = useUserStore()
-  if (store.accessToken) {
-    config.headers.Authorization = `Bearer ${store.accessToken}`
-  }
   return config
 })
 

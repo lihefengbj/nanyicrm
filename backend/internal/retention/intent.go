@@ -6,6 +6,7 @@ package retention
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"time"
@@ -16,11 +17,13 @@ import (
 )
 
 type Report struct {
+	ArchivedAnalyses int64
 	RedactedAnalyses int64
 	DeletedAnalyses  int64
 	DeletedFeedback  int64
 	DeletedTaskItems int64
 	DeletedTasks     int64
+	DeletedArchives  int64
 }
 
 // PurgeIntentData redacts snapshots on retained current analyses and
@@ -28,6 +31,10 @@ type Report struct {
 // batch tasks. A zero or negative cutoff is rejected to prevent accidental
 // full-table deletion.
 func PurgeIntentData(ctx context.Context, db *gorm.DB, cutoff time.Time) (Report, error) {
+	return PurgeIntentDataWithArchive(ctx, db, cutoff, time.Time{})
+}
+
+func PurgeIntentDataWithArchive(ctx context.Context, db *gorm.DB, cutoff, archiveCutoff time.Time) (Report, error) {
 	if db == nil {
 		return Report{}, errors.New("retention: database is nil")
 	}
@@ -37,6 +44,33 @@ func PurgeIntentData(ctx context.Context, db *gorm.DB, cutoff time.Time) (Report
 
 	var report Report
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var expired []model.CrmCustomerIntentAnalysis
+		if err := tx.Unscoped().Where("created_at < ?", cutoff).Find(&expired).Error; err != nil {
+			return err
+		}
+		for _, row := range expired {
+			var existing model.CrmCustomerIntentAnalysisArchive
+			if err := tx.Where("original_analysis_id = ?", row.ID).First(&existing).Error; err == nil {
+				continue
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			payload, err := json.Marshal(row)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&model.CrmCustomerIntentAnalysisArchive{
+				OriginalAnalysisID: row.ID,
+				TenantID:           row.TenantID,
+				CustomerID:         row.CustomerID,
+				Payload:            string(payload),
+				CreatedAt:          row.CreatedAt,
+				ArchivedAt:         time.Now(),
+			}).Error; err != nil {
+				return err
+			}
+			report.ArchivedAnalyses++
+		}
 		currentIDs := tx.Model(&model.CrmCustomerIntent{}).
 			Select("analysis_id").
 			Where("analysis_id > 0 AND deleted_at IS NULL")
@@ -117,6 +151,15 @@ func PurgeIntentData(ctx context.Context, db *gorm.DB, cutoff time.Time) (Report
 			}
 			report.DeletedTasks = deletedTasks.RowsAffected
 		}
+		if !archiveCutoff.IsZero() {
+			deletedArchives := tx.Unscoped().
+				Where("archived_at < ?", archiveCutoff).
+				Delete(&model.CrmCustomerIntentAnalysisArchive{})
+			if deletedArchives.Error != nil {
+				return deletedArchives.Error
+			}
+			report.DeletedArchives = deletedArchives.RowsAffected
+		}
 		return nil
 	})
 	return report, err
@@ -147,6 +190,7 @@ func DeleteCustomerIntentData(ctx context.Context, db *gorm.DB, tenantID, custom
 			&model.CrmCustomerIntent{},
 			&model.CrmCustomerIntentAnalysis{},
 			&model.CrmCustomerIntentTaskItem{},
+			&model.CrmCustomerIntentAnalysisArchive{},
 		} {
 			if err := tx.Unscoped().
 				Where("tenant_id = ? AND customer_id = ?", tenantID, customerID).
@@ -219,22 +263,46 @@ func recountTask(tx *gorm.DB, taskID uint64) error {
 // StartIntentCleanup runs once at startup and then daily. RetentionDays <= 0
 // leaves the feature disabled, preserving the development default.
 func StartIntentCleanup(ctx context.Context, db *gorm.DB, retentionDays int) {
+	StartIntentCleanupWithArchive(ctx, db, retentionDays, 0)
+}
+
+func StartIntentCleanupWithArchive(ctx context.Context, db *gorm.DB, retentionDays, archiveDays int) {
+	StartIntentCleanupWithArchiveReport(ctx, db, retentionDays, archiveDays, nil)
+}
+
+// StartIntentCleanupWithArchiveReport is the scheduled cleanup entry point.
+// The callback runs after each successful cleanup and is intentionally kept
+// outside the transaction so callers can publish metrics without affecting
+// retention correctness.
+func StartIntentCleanupWithArchiveReport(
+	ctx context.Context,
+	db *gorm.DB,
+	retentionDays, archiveDays int,
+	onReport func(Report),
+) {
 	if retentionDays <= 0 || db == nil {
 		return
 	}
 	cleanup := func() {
 		cutoff := time.Now().AddDate(0, 0, -retentionDays)
-		report, err := PurgeIntentData(ctx, db, cutoff)
+		archiveCutoff := time.Time{}
+		if archiveDays > 0 {
+			archiveCutoff = time.Now().AddDate(0, 0, -(retentionDays + archiveDays))
+		}
+		report, err := PurgeIntentDataWithArchive(ctx, db, cutoff, archiveCutoff)
 		if err != nil {
 			log.Printf("intent retention cleanup failed: %v", err)
 			return
 		}
-		if report.RedactedAnalyses > 0 || report.DeletedAnalyses > 0 ||
+		if onReport != nil {
+			onReport(report)
+		}
+		if report.ArchivedAnalyses > 0 || report.RedactedAnalyses > 0 || report.DeletedAnalyses > 0 ||
 			report.DeletedFeedback > 0 || report.DeletedTaskItems > 0 ||
-			report.DeletedTasks > 0 {
-			log.Printf("intent retention cleanup completed cutoff=%s redacted_analyses=%d deleted_analyses=%d deleted_feedback=%d deleted_task_items=%d deleted_tasks=%d",
-				cutoff.Format(time.RFC3339), report.RedactedAnalyses, report.DeletedAnalyses,
-				report.DeletedFeedback, report.DeletedTaskItems, report.DeletedTasks)
+			report.DeletedTasks > 0 || report.DeletedArchives > 0 {
+			log.Printf("intent retention cleanup completed cutoff=%s archived_analyses=%d redacted_analyses=%d deleted_analyses=%d deleted_feedback=%d deleted_task_items=%d deleted_tasks=%d deleted_archives=%d",
+				cutoff.Format(time.RFC3339), report.ArchivedAnalyses, report.RedactedAnalyses, report.DeletedAnalyses,
+				report.DeletedFeedback, report.DeletedTaskItems, report.DeletedTasks, report.DeletedArchives)
 		}
 	}
 

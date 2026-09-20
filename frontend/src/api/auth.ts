@@ -1,12 +1,12 @@
 import { get, post } from './request'
-import type { TokenPair, UserInfo } from '@/types/api'
+import type { SessionResponse, UserInfo } from '@/types/api'
 
 export function login(username: string, pwd: string) {
-  return post<TokenPair>('/auth/login', { username, pwd })
+  return post<SessionResponse>('/auth/login', { username, pwd })
 }
 
-export function logout(refreshToken: string) {
-  return post<void>('/auth/logout', { refreshToken })
+export function logout() {
+  return post<void>('/auth/logout')
 }
 
 export function fetchProfile() {

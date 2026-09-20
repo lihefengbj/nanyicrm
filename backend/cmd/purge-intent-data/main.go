@@ -33,11 +33,15 @@ func main() {
 	}
 
 	cutoff := time.Now().AddDate(0, 0, -cfg.LLM.RetentionDays)
-	report, err := retention.PurgeIntentData(context.Background(), db, cutoff)
+	archiveCutoff := time.Time{}
+	if cfg.LLM.ArchiveDays > 0 {
+		archiveCutoff = time.Now().AddDate(0, 0, -(cfg.LLM.RetentionDays + cfg.LLM.ArchiveDays))
+	}
+	report, err := retention.PurgeIntentDataWithArchive(context.Background(), db, cutoff, archiveCutoff)
 	if err != nil {
 		log.Fatalf("purge intent data: %v", err)
 	}
-	log.Printf("purged intent data cutoff=%s redacted_analyses=%d deleted_analyses=%d deleted_feedback=%d deleted_task_items=%d deleted_tasks=%d",
-		cutoff.Format(time.RFC3339), report.RedactedAnalyses, report.DeletedAnalyses,
-		report.DeletedFeedback, report.DeletedTaskItems, report.DeletedTasks)
+	log.Printf("purged intent data cutoff=%s archived_analyses=%d redacted_analyses=%d deleted_analyses=%d deleted_feedback=%d deleted_task_items=%d deleted_tasks=%d deleted_archives=%d",
+		cutoff.Format(time.RFC3339), report.ArchivedAnalyses, report.RedactedAnalyses, report.DeletedAnalyses,
+		report.DeletedFeedback, report.DeletedTaskItems, report.DeletedTasks, report.DeletedArchives)
 }

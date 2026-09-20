@@ -20,11 +20,14 @@ type Config struct {
 	JWT       JWTConfig       `yaml:"jwt"`
 	LLM       LLMConfig       `yaml:"llm"`
 	Log       LogConfig       `yaml:"log"`
+	Alerts    AlertConfig     `yaml:"alerts"`
+	Metrics   MetricsConfig   `yaml:"metrics"`
 	Bootstrap BootstrapConfig `yaml:"bootstrap"`
 }
 
 type AppConfig struct {
-	Env string `yaml:"env"` // dev / test / prod; swagger UI is disabled in prod
+	Env         string `yaml:"env"` // dev / test / prod; swagger UI is disabled in prod
+	AutoMigrate bool   `yaml:"auto_migrate"`
 }
 
 type ServerConfig struct {
@@ -67,9 +70,11 @@ type LLMConfig struct {
 	MaxTokens      int           `yaml:"max_tokens"`
 	Temperature    float32       `yaml:"temperature"`
 	ConfigVersion  string        `yaml:"config_version"`
+	PromptVersion  string        `yaml:"prompt_version"`
 	ResponseFormat string        `yaml:"response_format"`
 	ThinkingMode   string        `yaml:"thinking_mode"`
 	RetentionDays  int           `yaml:"retention_days"` // raw AI snapshots to keep; 0 disables cleanup
+	ArchiveDays    int           `yaml:"archive_days"`   // archived AI records to keep after live cleanup
 	Pricing        PricingConfig `yaml:"pricing"`
 	Quota          QuotaConfig   `yaml:"quota"`
 }
@@ -310,6 +315,19 @@ type LogConfig struct {
 	RetainDays int    `yaml:"retain_days"` // days to keep daily log files, 0 keeps forever
 }
 
+type AlertConfig struct {
+	Enabled               bool          `yaml:"enabled"`
+	WebhookURL            string        `yaml:"webhook_url"`
+	LoginFailureThreshold int           `yaml:"login_failure_threshold"`
+	WindowText            string        `yaml:"window"`
+	Window                time.Duration `yaml:"-"`
+}
+
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Token   string `yaml:"token"`
+}
+
 type BootstrapConfig struct {
 	AdminPassword      string `yaml:"admin_password"`
 	SuperAdminPassword string `yaml:"super_admin_password"`
@@ -339,6 +357,7 @@ func Load() *Config {
 
 func defaults() *Config {
 	return &Config{
+		App: AppConfig{Env: "dev", AutoMigrate: true},
 		Server: ServerConfig{
 			Port:           "8080",
 			Mode:           "debug",
@@ -352,6 +371,7 @@ func defaults() *Config {
 			MaxTokens:      1200,
 			Temperature:    0.2,
 			ConfigVersion:  "v1",
+			PromptVersion:  "v1",
 			ResponseFormat: "json_object",
 			Pricing: PricingConfig{
 				Currency:    "CNY",
@@ -364,8 +384,14 @@ func defaults() *Config {
 				DailyTokens: 2000000,
 				Concurrency: 5,
 			},
+			ArchiveDays: 90,
 		},
 		Log: LogConfig{Dir: "log", File: "server.log", RetainDays: 30},
+		Alerts: AlertConfig{
+			LoginFailureThreshold: 5,
+			WindowText:            "10m",
+		},
+		Metrics: MetricsConfig{Enabled: true},
 		Bootstrap: BootstrapConfig{
 			AdminPassword:      "admin123",
 			SuperAdminPassword: "superAdmin123",
@@ -376,6 +402,9 @@ func defaults() *Config {
 func (c *Config) applyDefaults() {
 	if c.App.Env == "" {
 		c.App.Env = "dev"
+	}
+	if c.App.Env == "prod" && c.App.AutoMigrate {
+		panic("config: production app.auto_migrate must be false")
 	}
 	if c.Server.Port == "" {
 		c.Server.Port = "8080"
@@ -403,6 +432,9 @@ func (c *Config) applyDefaults() {
 	if c.LLM.ConfigVersion == "" {
 		c.LLM.ConfigVersion = "v1"
 	}
+	if c.LLM.PromptVersion == "" {
+		c.LLM.PromptVersion = "v1"
+	}
 	if c.LLM.ResponseFormat == "" {
 		c.LLM.ResponseFormat = "json_object"
 	}
@@ -421,6 +453,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LLM.RetentionDays < 0 {
 		c.LLM.RetentionDays = 0
+	}
+	if c.LLM.ArchiveDays < 0 {
+		c.LLM.ArchiveDays = 0
 	}
 	if c.LLM.Pricing.Currency == "" {
 		c.LLM.Pricing.Currency = "CNY"
@@ -494,6 +529,13 @@ func (c *Config) applyDefaults() {
 	if c.Log.File == "" {
 		c.Log.File = "server.log"
 	}
+	if c.Alerts.LoginFailureThreshold <= 0 {
+		c.Alerts.LoginFailureThreshold = 5
+	}
+	c.Alerts.Window = parseDuration(c.Alerts.WindowText, 10*time.Minute)
+	if c.Alerts.Window <= 0 {
+		c.Alerts.Window = 10 * time.Minute
+	}
 	if c.App.Env == "prod" {
 		if len(c.JWT.SigningKey) < 32 || c.JWT.SigningKey == "nanyicrm-dev-signing-key-change-me" {
 			panic("config: production jwt.signing_key must be at least 32 characters")
@@ -566,6 +608,15 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("llm.thinking_mode must be empty, disabled or enabled")
 		}
+	}
+	if c.App.Env == "prod" && c.Metrics.Enabled {
+		metricsToken := strings.TrimSpace(c.Metrics.Token)
+		if len(metricsToken) < 16 || metricsToken == "change-me-metrics-token" {
+			return fmt.Errorf("metrics.token must be a non-default value of at least 16 characters in production")
+		}
+	}
+	if c.Alerts.Enabled && strings.TrimSpace(c.Alerts.WebhookURL) == "" {
+		return fmt.Errorf("alerts.webhook_url is required when alerts.enabled=true")
 	}
 	return nil
 }

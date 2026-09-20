@@ -6,6 +6,7 @@ Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为�
 > AI 客户意向分析设计与实施计划见 [docs/ai-customer-intent.md](docs/ai-customer-intent.md)。
 > M1~M6 全部里程碑已完成，端到端冒烟测试 51 项断言全部通过（可重复执行）。
 > 生产上线前的安全与质量整改项见 [docs/hardening-plan.md](docs/hardening-plan.md)。
+> 当前安全、AI 治理、迁移和测试实现进度见 [docs/implementation-status.md](docs/implementation-status.md)。
 
 ## 项目目标
 
@@ -53,6 +54,7 @@ Nanyi CRM 是一个面向客户关系管理场景的基础框架，目标是为�
 | M5 治理能力 | ✅ 已完成 | 菜单管理 CRUD、Swagger 接口文档、API 接口管理（自动采集） |
 | M6 动态菜单 | ✅ 已完成 | 侧边栏与路由按后端菜单树动态生成，菜单管理闭环 |
 | M7 AI 客户意向 | ✅ 已完成二期 | 大模型适配、意向分析、历史/反馈/对比、批量任务与可靠队列、待跟进工作台、租户级额度保护、运营指标与费用估算、AI 数据保留期与删除清理 |
+| M8 安全与运行治理 | ✅ 已完成主体实现 | 模型质量门禁/审计/灰度/回滚、生产版本化迁移、异常登录告警、Prometheus 指标、HttpOnly 会话、真实集成测试入口与 AI E2E |
 
 ### M6 动态菜单明细
 
@@ -220,6 +222,10 @@ pwsh scripts/smoke-test.ps1
 - [x] 动态菜单与动态路由（侧边栏/路由按后端菜单树生成，M6，见 [docs/dynamic-menu.md](docs/dynamic-menu.md)）
 - [x] AI 客户意向分析一期（大模型适配、意向分析、历史记录与前端展示，M7）
 - [x] AI 客户意向分析二期（批量任务与可靠队列、反馈与结果对比、待跟进工作台、租户级额度保护，M7，见 [docs/ai-customer-intent.md](docs/ai-customer-intent.md)）
+- [x] AI 费用估算、数据保留/归档/清理及模型治理（见 [docs/implementation-status.md](docs/implementation-status.md)）
+- [x] 生产环境关闭 AutoMigrate，切换嵌入式版本化迁移
+- [x] 异常登录告警、集中监控、HttpOnly Cookie 会话
+- [x] 真实 MySQL/Redis 集成测试入口和 AI Playwright E2E 测试入口
 
 ## 贡献
 
@@ -228,4 +234,3 @@ pwsh scripts/smoke-test.ps1
 ## 许可证
 
 当前项目暂未指定开源许可证。
-

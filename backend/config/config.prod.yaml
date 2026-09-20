@@ -2,6 +2,7 @@
 # commit real credentials here.
 app:
   env: prod
+  auto_migrate: false
 server:
   port: "8080"
   mode: release
@@ -25,9 +26,11 @@ llm:
   max_tokens: 1200
   temperature: 0.2
   config_version: "${LLM_CONFIG_VERSION}"
+  prompt_version: "${LLM_PROMPT_VERSION}"
   response_format: "${LLM_RESPONSE_FORMAT}"
   thinking_mode: "${LLM_THINKING_MODE}"
-  retention_days: 0 # set explicitly in the production config to enable cleanup
+  retention_days: 30
+  archive_days: 365
   pricing:
     currency: "CNY"
     mode: "auto"             # auto or unified
@@ -62,3 +65,11 @@ log:
   dir: log
   file: server.log
   retain_days: 30
+alerts:
+  enabled: ${ALERTS_ENABLED}
+  webhook_url: "${ALERTS_WEBHOOK_URL}"
+  login_failure_threshold: 5
+  window: 10m
+metrics:
+  enabled: true
+  token: "${METRICS_TOKEN}"

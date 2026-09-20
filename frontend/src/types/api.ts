@@ -22,6 +22,11 @@ export interface TokenPair {
   expiresIn: number
 }
 
+export interface SessionResponse {
+  authenticated: boolean
+  expiresIn: number
+}
+
 export interface TenantBrief {
   id: number
   code: string
@@ -492,6 +497,40 @@ export interface IntentMetrics {
   feedbackCount: number
   acceptedFeedback: number
   acceptanceRate: number
+}
+
+export interface AIModelConfig {
+  id: number
+  name: string
+  provider: string
+  baseUrl: string
+  model: string
+  configVersion: string
+  promptVersion: string
+  responseFormat: string
+  thinkingMode: string
+  maxTokens: number
+  temperature: number
+  status: 'draft' | 'approved' | 'active' | 'canary' | 'retired'
+  canaryPercent: number
+  qualityPassed: boolean
+  qualitySummary: string
+  qualityMetrics: string
+  qualityCheckedAt?: string
+  activatedAt?: string
+  createdAt: string
+}
+
+export interface AIModelChange {
+  id: number
+  configId: number
+  fromConfigId: number
+  toConfigId: number
+  actorId: number
+  action: string
+  reason: string
+  qualitySummary: string
+  createdAt: string
 }
 
 // ---- sales ----

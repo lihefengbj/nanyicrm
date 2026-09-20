@@ -61,6 +61,7 @@ const keepAliveNames: Record<string, string> = {
   'sales/contract/index': 'SalesContract',
   'sales/opportunity/index': 'SalesOpportunity',
   'system/api/index': 'SystemApi',
+  'system/ai-model/index': 'SystemAIModel',
   'system/dept/index': 'SystemDept',
   'system/dict/index': 'SystemDict',
   'system/log/login': 'SystemLoginLog',
@@ -118,7 +119,12 @@ router.beforeEach(async (to) => {
     return true
   }
   if (!store.isLoggedIn) {
-    return { path: '/login', query: { redirect: to.fullPath } }
+    try {
+      store.setProfile(await fetchProfile())
+    } catch {
+      store.logout()
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
   }
   if (!store.profile || !dynamicRoutesReady) {
     try {

@@ -13,7 +13,7 @@ func TestNewRegistersCustomerIntentRoutes(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{TrustedProxies: []string{"127.0.0.1"}},
 	}
-	engine, registry, _ := New(nil, nil, cfg)
+	engine, registry, _, _ := New(nil, nil, cfg)
 	if engine == nil {
 		t.Fatal("expected gin engine")
 	}
@@ -30,6 +30,12 @@ func TestNewRegistersCustomerIntentRoutes(t *testing.T) {
 		"GET /api/v1/crm/intent/workbench",
 		"GET /api/v1/crm/intent/metrics",
 		"POST /api/v1/crm/intent/config/test",
+		"GET /api/v1/crm/intent/model-config",
+		"POST /api/v1/crm/intent/model-config/:id/quality-gate",
+		"POST /api/v1/crm/intent/model-config/:id/canary",
+		"POST /api/v1/crm/intent/model-config/:id/activate",
+		"POST /api/v1/crm/intent/model-config/rollback",
+		"GET /api/v1/crm/intent/model-config/changes",
 	} {
 		if !paths[route] {
 			t.Fatalf("route %s was not registered", route)

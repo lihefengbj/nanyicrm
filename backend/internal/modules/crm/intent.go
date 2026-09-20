@@ -22,6 +22,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/observability"
 	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
 )
 
@@ -104,6 +105,7 @@ type IntentHandler struct {
 	taskEnqueuer func(context.Context, IntentTask) error
 	quota        *quota.Service
 	pricing      config.PricingConfig
+	metrics      *observability.Metrics
 }
 
 func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider, quotaSvc *quota.Service) *IntentHandler {
@@ -116,6 +118,10 @@ func (h *IntentHandler) SetTaskEnqueuer(enqueuer func(context.Context, IntentTas
 
 func (h *IntentHandler) SetPricing(pricing config.PricingConfig) {
 	h.pricing = pricing
+}
+
+func (h *IntentHandler) SetMetrics(metrics *observability.Metrics) {
+	h.metrics = metrics
 }
 
 // checkQuota rejects creating new analysis tasks when the tenant already met
@@ -580,6 +586,17 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 			return nil, err
 		}
 	}
+	aiSucceeded := false
+	if h.metrics != nil {
+		h.metrics.IncAIRequest()
+		defer func() {
+			if aiSucceeded {
+				h.metrics.IncAISuccess()
+			} else {
+				h.metrics.IncAIFailure()
+			}
+		}()
+	}
 	input, err := h.buildInput(customer)
 	if err != nil {
 		return nil, fmt.Errorf("build intent input: %w", err)
@@ -627,11 +644,20 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 		return nil, &intentAnalysisError{errorType: ai.ErrorTypeEmptyResponse, cause: err}
 	}
 	result := analysis.Result
+	if analysis.Metadata.ConfiguredProvider != "" {
+		history.Provider = analysis.Metadata.ConfiguredProvider
+	}
 	history.ActualModel = analysis.Metadata.ActualModel
+	if analysis.Metadata.ConfiguredModel != "" {
+		history.Model = analysis.Metadata.ConfiguredModel
+	}
 	if history.ActualModel == "" {
 		history.ActualModel = h.provider.Model()
 	}
 	history.ModelConfigVersion = analysis.Metadata.ConfigVersion
+	if analysis.Metadata.PromptVersion != "" {
+		history.PromptVersion = analysis.Metadata.PromptVersion
+	}
 	history.AdapterVersion = analysis.Metadata.AdapterVersion
 	history.InputTokens = analysis.Metadata.InputTokens
 	history.InputCacheHitTokens = analysis.Metadata.InputCacheHitTokens
@@ -660,6 +686,9 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	history.ResultSnapshot = string(resultSnapshot)
 	history.AnalyzedAt = &analyzedAt
 	intent := h.toModel(customer, result, analyzedAt, history.ID)
+	intent.Provider = history.Provider
+	intent.Model = history.Model
+	intent.PromptVersion = history.PromptVersion
 	promoted := false
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&history).Error; err != nil {
@@ -707,6 +736,7 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 			return &current, nil
 		}
 	}
+	aiSucceeded = true
 	return &intent, nil
 }
 

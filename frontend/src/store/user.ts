@@ -1,33 +1,32 @@
 import { defineStore } from 'pinia'
 import type { TokenPair, UserInfo } from '@/types/api'
 
-const ACCESS_KEY = 'nanyicrm_access_token'
-const REFRESH_KEY = 'nanyicrm_refresh_token'
-
 interface UserState {
-  accessToken: string
-  refreshToken: string
+  authenticated: boolean
   profile: UserInfo | null
 }
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    accessToken: localStorage.getItem(ACCESS_KEY) ?? '',
-    refreshToken: localStorage.getItem(REFRESH_KEY) ?? '',
+    authenticated: false,
     profile: null,
   }),
   getters: {
-    isLoggedIn: (s) => !!s.accessToken,
+    isLoggedIn: (s) => s.authenticated,
   },
   actions: {
     setTokens(pair: TokenPair) {
-      this.accessToken = pair.accessToken
-      this.refreshToken = pair.refreshToken
-      localStorage.setItem(ACCESS_KEY, pair.accessToken)
-      localStorage.setItem(REFRESH_KEY, pair.refreshToken)
+      // Kept as a compatibility shim for callers compiled against the old
+      // API. Tokens are now HttpOnly cookies and never enter JavaScript.
+      void pair
+      this.authenticated = true
+    },
+    setAuthenticated() {
+      this.authenticated = true
     },
     setProfile(profile: UserInfo) {
       this.profile = profile
+      this.authenticated = true
     },
     hasPerm(perm: string): boolean {
       if (!this.profile) return false
@@ -35,11 +34,12 @@ export const useUserStore = defineStore('user', {
       return (this.profile.perms || []).includes(perm)
     },
     logout() {
-      this.accessToken = ''
-      this.refreshToken = ''
+      this.authenticated = false
       this.profile = null
-      localStorage.removeItem(ACCESS_KEY)
-      localStorage.removeItem(REFRESH_KEY)
+      // Remove tokens written by versions before the HttpOnly-cookie
+      // migration.
+      localStorage.removeItem('nanyicrm_access_token')
+      localStorage.removeItem('nanyicrm_refresh_token')
     },
   },
 })
