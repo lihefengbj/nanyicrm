@@ -93,13 +93,15 @@ type IntentResult struct {
 }
 
 type CallMetadata struct {
-	RequestID      string
-	ActualModel    string
-	InputTokens    int
-	OutputTokens   int
-	TotalTokens    int
-	ConfigVersion  string
-	AdapterVersion string
+	RequestID            string
+	ActualModel          string
+	InputTokens          int
+	InputCacheHitTokens  int
+	InputCacheMissTokens int
+	OutputTokens         int
+	TotalTokens          int
+	ConfigVersion        string
+	AdapterVersion       string
 }
 
 type IntentAnalysis struct {
@@ -266,13 +268,15 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 	return &IntentAnalysis{
 		Result: &result,
 		Metadata: CallMetadata{
-			RequestID:      completion.ID,
-			ActualModel:    completion.Model,
-			InputTokens:    completion.Usage.PromptTokens,
-			OutputTokens:   completion.Usage.CompletionTokens,
-			TotalTokens:    completion.Usage.TotalTokens,
-			ConfigVersion:  p.configVersion,
-			AdapterVersion: AdapterVersion,
+			RequestID:            completion.ID,
+			ActualModel:          completion.Model,
+			InputTokens:          completion.Usage.PromptTokens,
+			InputCacheHitTokens:  completion.Usage.InputCacheHitTokens(),
+			InputCacheMissTokens: completion.Usage.InputCacheMissTokens(),
+			OutputTokens:         completion.Usage.CompletionTokens,
+			TotalTokens:          completion.Usage.TotalTokens,
+			ConfigVersion:        p.configVersion,
+			AdapterVersion:       AdapterVersion,
 		},
 	}, nil
 }
@@ -305,11 +309,46 @@ type chatCompletionResponse struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage chatCompletionUsage `json:"usage"`
+}
+
+type chatCompletionUsage struct {
+	PromptTokens          int  `json:"prompt_tokens"`
+	CompletionTokens      int  `json:"completion_tokens"`
+	TotalTokens           int  `json:"total_tokens"`
+	PromptCacheHitTokens  *int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens *int `json:"prompt_cache_miss_tokens"`
+	PromptTokensDetails   *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u chatCompletionUsage) InputCacheHitTokens() int {
+	if u.PromptCacheHitTokens != nil {
+		return maxNonNegative(*u.PromptCacheHitTokens)
+	}
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens != nil {
+		return maxNonNegative(*u.PromptTokensDetails.CachedTokens)
+	}
+	return 0
+}
+
+func (u chatCompletionUsage) InputCacheMissTokens() int {
+	if u.PromptCacheMissTokens != nil {
+		return maxNonNegative(*u.PromptCacheMissTokens)
+	}
+	hit := u.InputCacheHitTokens()
+	if hit > 0 {
+		return maxNonNegative(u.PromptTokens - hit)
+	}
+	return maxNonNegative(u.PromptTokens)
+}
+
+func maxNonNegative(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 const systemPrompt = `你是一个严谨的B2B销售客户意向分析助手。

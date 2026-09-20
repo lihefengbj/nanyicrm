@@ -15,6 +15,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/database"
 	"github.com/lihefengbj/nanyicrm/backend/internal/logger"
 	"github.com/lihefengbj/nanyicrm/backend/internal/modules/system"
+	"github.com/lihefengbj/nanyicrm/backend/internal/retention"
 	"github.com/lihefengbj/nanyicrm/backend/internal/router"
 	"github.com/lihefengbj/nanyicrm/backend/internal/seed"
 )
@@ -100,6 +101,7 @@ func main() {
 	if intentQueue != nil {
 		go intentQueue.Run(signalCtx)
 	}
+	retention.StartIntentCleanup(signalCtx, db, cfg.LLM.RetentionDays)
 	select {
 	case <-signalCtx.Done():
 		log.Printf("shutdown signal received")

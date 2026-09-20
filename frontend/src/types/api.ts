@@ -340,8 +340,11 @@ export interface CustomerIntentHistory {
   adapterVersion: string
   promptVersion: string
   inputTokens: number
+  inputCacheHitTokens: number
+  inputCacheMissTokens: number
   outputTokens: number
   totalTokens: number
+  billingPeriod: 'auto' | 'idle' | 'peak' | 'unified' | ''
   providerRequestId: string
   errorType: string
   inputHash: string
@@ -438,6 +441,19 @@ export interface IntentMetricGroup {
   modelConfigVersion: string
   promptVersion: string
   count: number
+  successCount: number
+  failedCount: number
+  incompleteCount: number
+  inputTokens: number
+  inputCacheHitTokens: number
+  inputCacheMissTokens: number
+  outputTokens: number
+  totalTokens: number
+  inputCacheHitCost: number
+  inputCacheMissCost: number
+  outputCost: number
+  estimatedCost: number
+  billingPeriod: 'idle' | 'peak' | 'unified'
 }
 
 export interface IntentFailureGroup {
@@ -451,12 +467,25 @@ export interface IntentMetrics {
   requestCount: number
   successCount: number
   failedCount: number
+  incompleteCount: number
   successRate: number
   averageCostMillis: number
   p95CostMillis: number
   inputTokens: number
+  inputCacheHitTokens: number
+  inputCacheMissTokens: number
   outputTokens: number
   totalTokens: number
+  inputCacheHitCost: number
+  inputCacheMissCost: number
+  inputCost: number
+  outputCost: number
+  estimatedCost: number
+  costCurrency: string
+  costPeriod: 'auto' | 'unified'
+  costMode: 'auto' | 'unified'
+  costFixedPeriod: 'idle' | 'peak' | ''
+  costConfigured: boolean
   byProvider: IntentMetricGroup[]
   failureReasons: IntentFailureGroup[]
   levelDistribution: Record<string, number>
@@ -574,5 +603,3 @@ export interface DictItemSavePayload {
   sort: number
   status: number
 }
-
-

@@ -304,27 +304,30 @@ func (CrmCustomerIntent) TableName() string { return "crm_customer_intent" }
 // troubleshooting. InputSnapshot and ResultSnapshot are JSON documents.
 type CrmCustomerIntentAnalysis struct {
 	Base
-	TenantID           uint64     `gorm:"index;default:0" json:"tenantId"`
-	CustomerID         uint64     `gorm:"index;not null" json:"customerId"`
-	TriggerUserID      uint64     `gorm:"index" json:"triggerUserId"`
-	InputSnapshot      string     `gorm:"type:text" json:"inputSnapshot"`
-	ResultSnapshot     string     `gorm:"type:text" json:"resultSnapshot"`
-	Status             string     `gorm:"size:16;index;not null" json:"status"`
-	ErrorMessage       string     `gorm:"size:1024" json:"errorMessage"`
-	Provider           string     `gorm:"size:64" json:"provider"`
-	Model              string     `gorm:"size:128" json:"model"`
-	ActualModel        string     `gorm:"size:128" json:"actualModel"`
-	ModelConfigVersion string     `gorm:"size:64;index" json:"modelConfigVersion"`
-	AdapterVersion     string     `gorm:"size:64" json:"adapterVersion"`
-	PromptVersion      string     `gorm:"size:32" json:"promptVersion"`
-	InputTokens        int        `json:"inputTokens"`
-	OutputTokens       int        `json:"outputTokens"`
-	TotalTokens        int        `json:"totalTokens"`
-	ProviderRequestID  string     `gorm:"size:128" json:"providerRequestId"`
-	ErrorType          string     `gorm:"size:32;index" json:"errorType"`
-	InputHash          string     `gorm:"size:64;index" json:"inputHash"`
-	CostMillis         int64      `json:"costMillis"`
-	AnalyzedAt         *time.Time `json:"analyzedAt"`
+	TenantID             uint64     `gorm:"index;default:0" json:"tenantId"`
+	CustomerID           uint64     `gorm:"index;not null" json:"customerId"`
+	TriggerUserID        uint64     `gorm:"index" json:"triggerUserId"`
+	InputSnapshot        string     `gorm:"type:text" json:"inputSnapshot"`
+	ResultSnapshot       string     `gorm:"type:text" json:"resultSnapshot"`
+	Status               string     `gorm:"size:16;index;not null" json:"status"`
+	ErrorMessage         string     `gorm:"size:1024" json:"errorMessage"`
+	Provider             string     `gorm:"size:64" json:"provider"`
+	Model                string     `gorm:"size:128" json:"model"`
+	ActualModel          string     `gorm:"size:128" json:"actualModel"`
+	ModelConfigVersion   string     `gorm:"size:64;index" json:"modelConfigVersion"`
+	AdapterVersion       string     `gorm:"size:64" json:"adapterVersion"`
+	PromptVersion        string     `gorm:"size:32" json:"promptVersion"`
+	InputTokens          int        `json:"inputTokens"`
+	InputCacheHitTokens  int        `json:"inputCacheHitTokens"`
+	InputCacheMissTokens int        `json:"inputCacheMissTokens"`
+	OutputTokens         int        `json:"outputTokens"`
+	TotalTokens          int        `json:"totalTokens"`
+	BillingPeriod        string     `gorm:"size:16" json:"billingPeriod"`
+	ProviderRequestID    string     `gorm:"size:128" json:"providerRequestId"`
+	ErrorType            string     `gorm:"size:32;index" json:"errorType"`
+	InputHash            string     `gorm:"size:64;index" json:"inputHash"`
+	CostMillis           int64      `json:"costMillis"`
+	AnalyzedAt           *time.Time `json:"analyzedAt"`
 }
 
 func (CrmCustomerIntentAnalysis) TableName() string { return "crm_customer_intent_analysis" }

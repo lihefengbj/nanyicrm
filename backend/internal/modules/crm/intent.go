@@ -19,6 +19,7 @@ import (
 
 	"github.com/lihefengbj/nanyicrm/backend/internal/ai"
 	"github.com/lihefengbj/nanyicrm/backend/internal/common"
+	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
 	"github.com/lihefengbj/nanyicrm/backend/internal/quota"
@@ -102,6 +103,7 @@ type IntentHandler struct {
 	provider     ai.Provider
 	taskEnqueuer func(context.Context, IntentTask) error
 	quota        *quota.Service
+	pricing      config.PricingConfig
 }
 
 func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider, quotaSvc *quota.Service) *IntentHandler {
@@ -110,6 +112,10 @@ func NewIntentHandler(db *gorm.DB, enabled bool, provider ai.Provider, quotaSvc 
 
 func (h *IntentHandler) SetTaskEnqueuer(enqueuer func(context.Context, IntentTask) error) {
 	h.taskEnqueuer = enqueuer
+}
+
+func (h *IntentHandler) SetPricing(pricing config.PricingConfig) {
+	h.pricing = pricing
 }
 
 // checkQuota rejects creating new analysis tasks when the tenant already met
@@ -596,6 +602,7 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	}
 
 	start := time.Now()
+	history.BillingPeriod = h.pricing.PeriodAt(start)
 	analysis, err := h.provider.AnalyzeCustomerIntent(ctx, input)
 	history.CostMillis = time.Since(start).Milliseconds()
 	if err != nil {
@@ -627,6 +634,8 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	history.ModelConfigVersion = analysis.Metadata.ConfigVersion
 	history.AdapterVersion = analysis.Metadata.AdapterVersion
 	history.InputTokens = analysis.Metadata.InputTokens
+	history.InputCacheHitTokens = analysis.Metadata.InputCacheHitTokens
+	history.InputCacheMissTokens = analysis.Metadata.InputCacheMissTokens
 	history.OutputTokens = analysis.Metadata.OutputTokens
 	history.TotalTokens = analysis.Metadata.TotalTokens
 	history.ProviderRequestID = analysis.Metadata.RequestID

@@ -11,6 +11,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/common"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/retention"
 )
 
 type CustomerHandler struct {
@@ -380,6 +381,9 @@ func (h *CustomerHandler) Delete(c *gin.Context) {
 			return err
 		}
 		if err := tx.Where("customer_id = ?", customer.ID).Delete(&model.CrmContact{}).Error; err != nil {
+			return err
+		}
+		if err := retention.DeleteCustomerIntentData(c.Request.Context(), tx, customer.TenantID, customer.ID); err != nil {
 			return err
 		}
 		return tx.Delete(customer).Error

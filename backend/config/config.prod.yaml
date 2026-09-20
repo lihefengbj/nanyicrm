@@ -27,6 +27,26 @@ llm:
   config_version: "${LLM_CONFIG_VERSION}"
   response_format: "${LLM_RESPONSE_FORMAT}"
   thinking_mode: "${LLM_THINKING_MODE}"
+  retention_days: 0 # set explicitly in the production config to enable cleanup
+  pricing:
+    currency: "CNY"
+    mode: "auto"             # auto or unified
+    fixed_period: ""         # optional idle or peak override
+    timezone: "Asia/Shanghai"
+    holidays: []              # YYYY-MM-DD statutory holidays; weekends are always idle
+    peak_periods:              # recurring peak windows; all other times are idle
+      - weekdays: [1, 2, 3, 4, 5]
+        start: "09:00"
+        end: "12:00"
+      - weekdays: [1, 2, 3, 4, 5]
+        start: "14:00"
+        end: "18:00"
+    input_cache_hit_idle_per_1m_tokens: 0.02
+    input_cache_hit_peak_per_1m_tokens: 0.04
+    input_cache_miss_idle_per_1m_tokens: 1
+    input_cache_miss_peak_per_1m_tokens: 2
+    output_idle_per_1m_tokens: 4
+    output_peak_per_1m_tokens: 8
   quota:
     daily_calls: 1000      # 每租户每日AI意向分析次数上限，0 表示不限制
     daily_tokens: 2000000  # 每租户单日Token用量上限，0 表示不限制

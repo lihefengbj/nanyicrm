@@ -69,7 +69,231 @@ type LLMConfig struct {
 	ConfigVersion  string        `yaml:"config_version"`
 	ResponseFormat string        `yaml:"response_format"`
 	ThinkingMode   string        `yaml:"thinking_mode"`
+	RetentionDays  int           `yaml:"retention_days"` // raw AI snapshots to keep; 0 disables cleanup
+	Pricing        PricingConfig `yaml:"pricing"`
 	Quota          QuotaConfig   `yaml:"quota"`
+}
+
+const (
+	PricingModeAuto      = "auto"
+	PricingModeUnified   = "unified"
+	PricingPeriodAuto    = "auto"
+	PricingPeriodIdle    = "idle"
+	PricingPeriodPeak    = "peak"
+	PricingPeriodUnified = "unified"
+)
+
+// PricingConfig describes an optional estimate in the configured currency.
+// Tiered prices are per one million provider tokens. The legacy input/output
+// fields remain supported for existing deployments and treat all input tokens
+// as uncached tokens.
+type PricingConfig struct {
+	Currency                        string                `yaml:"currency"`
+	Mode                            string                `yaml:"mode"`
+	FixedPeriod                     string                `yaml:"fixed_period"`
+	Period                          string                `yaml:"period"` // Deprecated: use mode/fixed_period.
+	Timezone                        string                `yaml:"timezone"`
+	Holidays                        []string              `yaml:"holidays"`
+	PeakPeriods                     []PricingPeriodWindow `yaml:"peak_periods"`
+	InputCacheHitIdlePerMillion     float64               `yaml:"input_cache_hit_idle_per_1m_tokens"`
+	InputCacheHitPeakPerMillion     float64               `yaml:"input_cache_hit_peak_per_1m_tokens"`
+	InputCacheMissIdlePerMillion    float64               `yaml:"input_cache_miss_idle_per_1m_tokens"`
+	InputCacheMissPeakPerMillion    float64               `yaml:"input_cache_miss_peak_per_1m_tokens"`
+	OutputIdlePerMillion            float64               `yaml:"output_idle_per_1m_tokens"`
+	OutputPeakPerMillion            float64               `yaml:"output_peak_per_1m_tokens"`
+	InputCacheHitUnifiedPerMillion  float64               `yaml:"input_cache_hit_per_1m_tokens"`
+	InputCacheMissUnifiedPerMillion float64               `yaml:"input_cache_miss_per_1m_tokens"`
+
+	// Deprecated: use the tiered fields above.
+	InputPerMillionTokens  float64 `yaml:"input_per_1m_tokens"`
+	OutputPerMillionTokens float64 `yaml:"output_per_1m_tokens"`
+}
+
+// PricingPeriodWindow defines one recurring peak-price window. Weekdays use
+// Go's time.Weekday values: Sunday=0, Monday=1, ..., Saturday=6.
+// The start is inclusive and the end is exclusive; idle time is the
+// complement of all matching peak windows.
+type PricingPeriodWindow struct {
+	Weekdays []int  `yaml:"weekdays"`
+	Start    string `yaml:"start"`
+	End      string `yaml:"end"`
+}
+
+type PricingRates struct {
+	InputCacheHitPerMillion  float64
+	InputCacheMissPerMillion float64
+	OutputPerMillion         float64
+}
+
+func defaultPeakPeriods() []PricingPeriodWindow {
+	return []PricingPeriodWindow{
+		{Weekdays: []int{1, 2, 3, 4, 5}, Start: "09:00", End: "12:00"},
+		{Weekdays: []int{1, 2, 3, 4, 5}, Start: "14:00", End: "18:00"},
+	}
+}
+
+func (w PricingPeriodWindow) contains(at time.Time) bool {
+	weekdayMatches := false
+	for _, weekday := range w.Weekdays {
+		if weekday == int(at.Weekday()) {
+			weekdayMatches = true
+			break
+		}
+	}
+	if !weekdayMatches {
+		return false
+	}
+
+	start, err := time.Parse("15:04", strings.TrimSpace(w.Start))
+	if err != nil {
+		return false
+	}
+	end, err := time.Parse("15:04", strings.TrimSpace(w.End))
+	if err != nil {
+		return false
+	}
+	startMinute := start.Hour()*60 + start.Minute()
+	endMinute := end.Hour()*60 + end.Minute()
+	if endMinute <= startMinute {
+		return false
+	}
+	currentMinute := at.Hour()*60 + at.Minute()
+	return currentMinute >= startMinute && currentMinute < endMinute
+}
+
+func (p PricingConfig) peakPeriods() []PricingPeriodWindow {
+	if len(p.PeakPeriods) == 0 {
+		return defaultPeakPeriods()
+	}
+	return p.PeakPeriods
+}
+
+func (p PricingConfig) HasTieredRates() bool {
+	return p.InputCacheHitIdlePerMillion > 0 ||
+		p.InputCacheHitPeakPerMillion > 0 ||
+		p.InputCacheMissIdlePerMillion > 0 ||
+		p.InputCacheMissPeakPerMillion > 0 ||
+		p.OutputIdlePerMillion > 0 ||
+		p.OutputPeakPerMillion > 0
+}
+
+func (p PricingConfig) IsConfigured() bool {
+	return p.HasTieredRates() || p.HasUnifiedRates()
+}
+
+func (p PricingConfig) Rates() PricingRates {
+	return p.RatesAt(time.Now())
+}
+
+func (p PricingConfig) RatesAt(at time.Time) PricingRates {
+	return p.RatesForPeriod(p.PeriodAt(at))
+}
+
+func (p PricingConfig) RatesForPeriod(period string) PricingRates {
+	if strings.EqualFold(period, PricingPeriodUnified) {
+		return p.UnifiedRates()
+	}
+	if !p.HasTieredRates() {
+		return p.UnifiedRates()
+	}
+	if strings.EqualFold(period, PricingPeriodPeak) {
+		return PricingRates{
+			InputCacheHitPerMillion:  p.InputCacheHitPeakPerMillion,
+			InputCacheMissPerMillion: p.InputCacheMissPeakPerMillion,
+			OutputPerMillion:         p.OutputPeakPerMillion,
+		}
+	}
+	return PricingRates{
+		InputCacheHitPerMillion:  p.InputCacheHitIdlePerMillion,
+		InputCacheMissPerMillion: p.InputCacheMissIdlePerMillion,
+		OutputPerMillion:         p.OutputIdlePerMillion,
+	}
+}
+
+func (p PricingConfig) HasUnifiedRates() bool {
+	return p.InputCacheHitUnifiedPerMillion > 0 ||
+		p.InputCacheMissUnifiedPerMillion > 0 ||
+		p.InputPerMillionTokens > 0 ||
+		p.OutputPerMillionTokens > 0
+}
+
+func (p PricingConfig) UnifiedRates() PricingRates {
+	inputHit := p.InputCacheHitUnifiedPerMillion
+	inputMiss := p.InputCacheMissUnifiedPerMillion
+	if inputHit == 0 && inputMiss == 0 {
+		inputHit = p.InputPerMillionTokens
+		inputMiss = p.InputPerMillionTokens
+	}
+	return PricingRates{
+		InputCacheHitPerMillion:  inputHit,
+		InputCacheMissPerMillion: inputMiss,
+		OutputPerMillion:         p.OutputPerMillionTokens,
+	}
+}
+
+func (p PricingConfig) ModeValue() string {
+	mode := strings.ToLower(strings.TrimSpace(p.Mode))
+	if mode == "" {
+		if strings.EqualFold(strings.TrimSpace(p.Period), PricingPeriodUnified) {
+			return PricingModeUnified
+		}
+		return PricingModeAuto
+	}
+	if mode != PricingModeUnified {
+		return PricingModeAuto
+	}
+	return mode
+}
+
+func (p PricingConfig) FixedPeriodValue() string {
+	fixed := strings.ToLower(strings.TrimSpace(p.FixedPeriod))
+	if fixed == PricingPeriodIdle || fixed == PricingPeriodPeak {
+		return fixed
+	}
+	// Backward compatibility for the old period: idle/peak meant a forced
+	// period, while unified meant a unified pricing mode.
+	if p.Mode == "" {
+		if fixed := strings.ToLower(strings.TrimSpace(p.Period)); fixed == PricingPeriodIdle || fixed == PricingPeriodPeak {
+			return fixed
+		}
+	}
+	return ""
+}
+
+func (p PricingConfig) PeriodAt(at time.Time) string {
+	if p.ModeValue() == PricingModeUnified {
+		return PricingPeriodUnified
+	}
+	if fixed := p.FixedPeriodValue(); fixed != "" {
+		return fixed
+	}
+
+	location := time.FixedZone("Asia/Shanghai", 8*60*60)
+	if timezone := strings.TrimSpace(p.Timezone); timezone != "" {
+		if loaded, err := time.LoadLocation(timezone); err == nil {
+			location = loaded
+		}
+	}
+	local := at.In(location)
+	if local.Weekday() == time.Saturday || local.Weekday() == time.Sunday || p.IsHoliday(local) {
+		return PricingPeriodIdle
+	}
+	for _, window := range p.peakPeriods() {
+		if window.contains(local) {
+			return PricingPeriodPeak
+		}
+	}
+	return PricingPeriodIdle
+}
+
+func (p PricingConfig) IsHoliday(date time.Time) bool {
+	dateText := date.Format("2006-01-02")
+	for _, holiday := range p.Holidays {
+		if strings.TrimSpace(holiday) == dateText {
+			return true
+		}
+	}
+	return false
 }
 
 // QuotaConfig holds platform-level default AI intent quotas. A value of 0
@@ -129,6 +353,12 @@ func defaults() *Config {
 			Temperature:    0.2,
 			ConfigVersion:  "v1",
 			ResponseFormat: "json_object",
+			Pricing: PricingConfig{
+				Currency:    "CNY",
+				Mode:        PricingModeAuto,
+				Timezone:    "Asia/Shanghai",
+				PeakPeriods: defaultPeakPeriods(),
+			},
 			Quota: QuotaConfig{
 				DailyCalls:  1000,
 				DailyTokens: 2000000,
@@ -188,6 +418,64 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LLM.Temperature > 2 {
 		c.LLM.Temperature = 2
+	}
+	if c.LLM.RetentionDays < 0 {
+		c.LLM.RetentionDays = 0
+	}
+	if c.LLM.Pricing.Currency == "" {
+		c.LLM.Pricing.Currency = "CNY"
+	}
+	legacyPeriod := strings.ToLower(strings.TrimSpace(c.LLM.Pricing.Period))
+	c.LLM.Pricing.Mode = strings.ToLower(strings.TrimSpace(c.LLM.Pricing.Mode))
+	if legacyPeriod == PricingPeriodUnified && c.LLM.Pricing.FixedPeriod == "" {
+		c.LLM.Pricing.Mode = PricingModeUnified
+	}
+	if c.LLM.Pricing.Mode != PricingModeUnified {
+		c.LLM.Pricing.Mode = PricingModeAuto
+	}
+	c.LLM.Pricing.FixedPeriod = strings.ToLower(strings.TrimSpace(c.LLM.Pricing.FixedPeriod))
+	if c.LLM.Pricing.FixedPeriod == "" &&
+		(legacyPeriod == PricingPeriodIdle || legacyPeriod == PricingPeriodPeak) {
+		c.LLM.Pricing.FixedPeriod = legacyPeriod
+	}
+	if c.LLM.Pricing.FixedPeriod != PricingPeriodIdle && c.LLM.Pricing.FixedPeriod != PricingPeriodPeak {
+		c.LLM.Pricing.FixedPeriod = ""
+	}
+	if c.LLM.Pricing.Timezone == "" {
+		c.LLM.Pricing.Timezone = "Asia/Shanghai"
+	}
+	if len(c.LLM.Pricing.PeakPeriods) == 0 {
+		c.LLM.Pricing.PeakPeriods = defaultPeakPeriods()
+	}
+	if c.LLM.Pricing.InputCacheHitIdlePerMillion < 0 {
+		c.LLM.Pricing.InputCacheHitIdlePerMillion = 0
+	}
+	if c.LLM.Pricing.InputCacheHitPeakPerMillion < 0 {
+		c.LLM.Pricing.InputCacheHitPeakPerMillion = 0
+	}
+	if c.LLM.Pricing.InputCacheMissIdlePerMillion < 0 {
+		c.LLM.Pricing.InputCacheMissIdlePerMillion = 0
+	}
+	if c.LLM.Pricing.InputCacheMissPeakPerMillion < 0 {
+		c.LLM.Pricing.InputCacheMissPeakPerMillion = 0
+	}
+	if c.LLM.Pricing.OutputIdlePerMillion < 0 {
+		c.LLM.Pricing.OutputIdlePerMillion = 0
+	}
+	if c.LLM.Pricing.OutputPeakPerMillion < 0 {
+		c.LLM.Pricing.OutputPeakPerMillion = 0
+	}
+	if c.LLM.Pricing.InputCacheHitUnifiedPerMillion < 0 {
+		c.LLM.Pricing.InputCacheHitUnifiedPerMillion = 0
+	}
+	if c.LLM.Pricing.InputCacheMissUnifiedPerMillion < 0 {
+		c.LLM.Pricing.InputCacheMissUnifiedPerMillion = 0
+	}
+	if c.LLM.Pricing.InputPerMillionTokens < 0 {
+		c.LLM.Pricing.InputPerMillionTokens = 0
+	}
+	if c.LLM.Pricing.OutputPerMillionTokens < 0 {
+		c.LLM.Pricing.OutputPerMillionTokens = 0
 	}
 	// Negative quotas are configuration errors; treat them as "no limit"
 	// instead of failing startup for a local development config.

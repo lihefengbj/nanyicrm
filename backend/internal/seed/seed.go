@@ -64,6 +64,9 @@ func ensureIntentMenus(db *gorm.DB) error {
 	if err := db.Where("perms = ? AND type = 2", "crm:customer:list").First(&customerMenu).Error; err != nil {
 		return nil
 	}
+	if err := ensureIntentMetricsMenu(db, customerMenu.ParentID); err != nil {
+		return err
+	}
 	buttons := []model.SysMenu{
 		{ParentID: customerMenu.ID, Title: "查看AI意向", Type: 3, Perms: "crm:intent:list", Sort: 10, Visible: 1, Status: 1},
 		{ParentID: customerMenu.ID, Title: "分析客户意向", Type: 3, Perms: "crm:intent:analyze", Sort: 11, Visible: 1, Status: 1},
@@ -108,6 +111,51 @@ func ensureIntentMenus(db *gorm.DB) error {
 		}
 	}
 	log.Println("seed: customer intent permissions ensured")
+	return nil
+}
+
+func ensureIntentMetricsMenu(db *gorm.DB, parentID uint64) error {
+	const pagePerm = "crm:intent:metrics:page"
+	var menu model.SysMenu
+	err := db.Where("perms = ? AND type = 2", pagePerm).First(&menu).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		menu = model.SysMenu{
+			ParentID:  parentID,
+			Title:     "AI意向指标",
+			Type:      2,
+			Path:      "intent-metrics",
+			Component: "crm/intent-metrics/index",
+			Perms:     pagePerm,
+			Sort:      4,
+			Visible:   1,
+			Status:    1,
+		}
+		if err := db.Create(&menu).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	for _, code := range []string{"admin", "superAdmin"} {
+		var role model.SysRole
+		if err := db.Where("code = ?", code).First(&role).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return err
+		}
+		var links int64
+		if err := db.Model(&model.SysRoleMenu{}).
+			Where("role_id = ? AND menu_id = ?", role.ID, menu.ID).
+			Count(&links).Error; err != nil {
+			return err
+		}
+		if links == 0 {
+			if err := db.Create(&model.SysRoleMenu{RoleID: role.ID, MenuID: menu.ID}).Error; err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

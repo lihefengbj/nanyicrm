@@ -57,6 +57,7 @@ const keepAliveNames: Record<string, string> = {
   'crm/contact/index': 'CrmContact',
   'crm/customer/index': 'CrmCustomer',
   'crm/follow/index': 'CrmFollow',
+  'crm/intent-metrics/index': 'CrmIntentMetrics',
   'sales/contract/index': 'SalesContract',
   'sales/opportunity/index': 'SalesOpportunity',
   'system/api/index': 'SystemApi',

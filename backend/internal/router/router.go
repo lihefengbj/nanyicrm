@@ -183,6 +183,7 @@ func New(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*gin.Engine, []sys
 		intentProvider = ai.NewProvider(cfg.LLM)
 	}
 	intent := crm.NewIntentHandler(db, cfg.LLM.Enabled, intentProvider, quotaSvc)
+	intent.SetPricing(cfg.LLM.Pricing)
 	var intentQueue *crm.IntentQueue
 	var enqueueIntent crm.IntentEnqueuer
 	if cfg.LLM.Enabled {

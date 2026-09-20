@@ -49,7 +49,7 @@ func TestOpenAICompatibleProviderAnalyze(t *testing.T) {
 			t.Fatalf("unexpected authorization header")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"req-123","model":"actual-model","usage":{"prompt_tokens":30,"completion_tokens":20,"total_tokens":50},"choices":[{"message":{"content":"{\"intentLevel\":\"medium\",\"intentScore\":66,\"confidence\":0.8,\"summary\":\"有明确兴趣\",\"needs\":[\"客户管理\"],\"painPoints\":[],\"budget\":\"未明确\",\"purchaseTimeline\":\"未明确\",\"decisionRole\":\"未明确\",\"risks\":[],\"nextAction\":\"安排演示\",\"suggestedNextAt\":null}"}}]}`))
+		_, _ = w.Write([]byte(`{"id":"req-123","model":"actual-model","usage":{"prompt_tokens":30,"prompt_cache_hit_tokens":12,"prompt_cache_miss_tokens":18,"completion_tokens":20,"total_tokens":50},"choices":[{"message":{"content":"{\"intentLevel\":\"medium\",\"intentScore\":66,\"confidence\":0.8,\"summary\":\"有明确兴趣\",\"needs\":[\"客户管理\"],\"painPoints\":[],\"budget\":\"未明确\",\"purchaseTimeline\":\"未明确\",\"decisionRole\":\"未明确\",\"risks\":[],\"nextAction\":\"安排演示\",\"suggestedNextAt\":null}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -72,9 +72,28 @@ func TestOpenAICompatibleProviderAnalyze(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	if analysis.Metadata.RequestID != "req-123" || analysis.Metadata.ActualModel != "actual-model" ||
-		analysis.Metadata.TotalTokens != 50 || analysis.Metadata.ConfigVersion != "test-v1" {
+		analysis.Metadata.TotalTokens != 50 ||
+		analysis.Metadata.InputCacheHitTokens != 12 ||
+		analysis.Metadata.InputCacheMissTokens != 18 ||
+		analysis.Metadata.ConfigVersion != "test-v1" {
 		t.Fatalf("unexpected metadata: %+v", analysis.Metadata)
 	}
+}
+
+func TestChatCompletionUsagePromptTokensDetails(t *testing.T) {
+	usage := chatCompletionUsage{
+		PromptTokens: 30,
+		PromptTokensDetails: &struct {
+			CachedTokens *int `json:"cached_tokens"`
+		}{CachedTokens: intPointer(12)},
+	}
+	if usage.InputCacheHitTokens() != 12 || usage.InputCacheMissTokens() != 18 {
+		t.Fatalf("unexpected cache usage: hit=%d miss=%d", usage.InputCacheHitTokens(), usage.InputCacheMissTokens())
+	}
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func TestClassifyHTTPStatus(t *testing.T) {
