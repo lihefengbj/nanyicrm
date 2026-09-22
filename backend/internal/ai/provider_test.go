@@ -2,8 +2,10 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +79,40 @@ func TestOpenAICompatibleProviderAnalyze(t *testing.T) {
 		analysis.Metadata.InputCacheMissTokens != 18 ||
 		analysis.Metadata.ConfigVersion != "test-v1" {
 		t.Fatalf("unexpected metadata: %+v", analysis.Metadata)
+	}
+}
+
+func TestOpenAICompatibleProviderUsesGovernedPrompt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(payload.Messages) == 0 || !strings.Contains(payload.Messages[0].Content, "灰度研判规则") {
+			t.Fatalf("governed prompt was not sent: %+v", payload.Messages)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"req-prompt","model":"prompt-model","choices":[{"message":{"content":"{\"intentLevel\":\"unknown\",\"intentScore\":null,\"confidence\":null,\"summary\":\"信息不足\",\"needs\":[],\"painPoints\":[],\"budget\":\"未明确\",\"purchaseTimeline\":\"未明确\",\"decisionRole\":\"未明确\",\"risks\":[],\"nextAction\":\"补充信息\",\"suggestedNextAt\":null}"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := NewProvider(config.LLMConfig{
+		BaseURL: server.URL, APIKey: "test-key", Model: "test-model", Timeout: time.Second,
+	})
+	promptProvider := provider.(PromptAwareProvider)
+	analysis, err := promptProvider.AnalyzeCustomerIntentWithPrompt(
+		context.Background(), IntentInput{}, "p-test123", "灰度研判规则：优先识别最近一次明确采购动作。",
+	)
+	if err != nil {
+		t.Fatalf("AnalyzeCustomerIntentWithPrompt() error = %v", err)
+	}
+	if analysis.Metadata.PromptVersion != "p-test123" {
+		t.Fatalf("prompt version = %q", analysis.Metadata.PromptVersion)
 	}
 }
 

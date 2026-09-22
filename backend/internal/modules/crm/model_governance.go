@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/lihefengbj/nanyicrm/backend/internal/config"
 	"github.com/lihefengbj/nanyicrm/backend/internal/middleware"
 	"github.com/lihefengbj/nanyicrm/backend/internal/model"
+	"github.com/lihefengbj/nanyicrm/backend/internal/security"
 )
 
 const (
@@ -51,17 +51,61 @@ func (p *GovernedProvider) Model() string {
 }
 
 func (p *GovernedProvider) AnalyzeCustomerIntent(ctx context.Context, input ai.IntentInput) (*ai.IntentAnalysis, error) {
-	cfg := p.selectedConfig(input)
-	return ai.NewProvider(cfg).AnalyzeCustomerIntent(ctx, input)
+	cfg, err := p.resolveConfig(input)
+	if err != nil {
+		return nil, &ai.ProviderError{Type: ai.ErrorTypeConfig, Err: err}
+	}
+	provider := ai.NewProvider(cfg)
+	if promptProvider, ok := provider.(ai.PromptAwareProvider); ok {
+		promptVersion, promptContent := p.resolvePrompt(input, cfg.PromptVersion)
+		analysis, err := promptProvider.AnalyzeCustomerIntentWithPrompt(ctx, input, promptVersion, promptContent)
+		if err != nil {
+			var providerErr *ai.ProviderError
+			if errors.As(err, &providerErr) {
+				providerErr.Metadata = ai.CallMetadata{
+					ConfiguredProvider: cfg.Provider,
+					ConfiguredModel:    cfg.Model,
+					ConfigVersion:      cfg.ConfigVersion,
+					PromptVersion:      promptVersion,
+					AdapterVersion:     ai.AdapterVersion,
+				}
+			}
+		}
+		return analysis, err
+	}
+	return provider.AnalyzeCustomerIntent(ctx, input)
+}
+
+func (p *GovernedProvider) ResolveCallMetadata(input ai.IntentInput) ai.CallMetadata {
+	cfg, err := p.resolveConfig(input)
+	if err != nil {
+		cfg = p.base
+	}
+	promptVersion, _ := p.resolvePrompt(input, cfg.PromptVersion)
+	return ai.CallMetadata{
+		ConfiguredProvider: cfg.Provider,
+		ConfiguredModel:    cfg.Model,
+		ConfigVersion:      cfg.ConfigVersion,
+		PromptVersion:      promptVersion,
+		AdapterVersion:     ai.AdapterVersion,
+	}
 }
 
 func (p *GovernedProvider) selectedConfig(input ai.IntentInput) config.LLMConfig {
-	if p.db == nil {
+	cfg, err := p.resolveConfig(input)
+	if err != nil {
 		return p.base
+	}
+	return cfg
+}
+
+func (p *GovernedProvider) resolveConfig(input ai.IntentInput) (config.LLMConfig, error) {
+	if p.db == nil {
+		return p.base, nil
 	}
 	var active model.SysAIModelConfig
 	if err := p.db.Where("status = ?", modelConfigActive).Order("id DESC").First(&active).Error; err != nil {
-		return p.base
+		return p.base, nil
 	}
 	selected := active
 	var canary model.SysAIModelConfig
@@ -74,7 +118,40 @@ func (p *GovernedProvider) selectedConfig(input ai.IntentInput) config.LLMConfig
 			selected = canary
 		}
 	}
-	return modelConfigToLLM(p.base, selected)
+	return resolveModelConfig(p.db, p.base, selected)
+}
+
+// resolvePrompt selects the active prompt and, when present, its canary using
+// the same stable input-hash strategy as model canaries. The configured model
+// prompt version is retained as a safe fallback for older deployments.
+func (p *GovernedProvider) resolvePrompt(input ai.IntentInput, fallbackVersion string) (string, string) {
+	if p.db == nil {
+		if fallbackVersion == "" {
+			fallbackVersion = ai.PromptVersion
+		}
+		return fallbackVersion, ai.DefaultPromptContent
+	}
+	var active model.SysAIPrompt
+	if err := p.db.Where("status = ?", promptStatusActive).Order("id DESC").First(&active).Error; err != nil {
+		if fallbackVersion != "" {
+			var configured model.SysAIPrompt
+			if p.db.Where("version = ? AND quality_passed = ?", fallbackVersion, true).First(&configured).Error == nil {
+				return configured.Version, configured.Content
+			}
+		}
+		return ai.PromptVersion, ai.DefaultPromptContent
+	}
+	selected := active
+	var canary model.SysAIPrompt
+	if err := p.db.Where("status = ? AND quality_passed = ?", promptStatusCanary, true).
+		Order("id DESC").First(&canary).Error; err == nil && canary.CanaryPercent > 0 {
+		data, _ := json.Marshal(input)
+		sum := sha256.Sum256(data)
+		if int(sum[0])%100 < canary.CanaryPercent {
+			selected = canary
+		}
+	}
+	return selected.Version, selected.Content
 }
 
 func modelConfigToLLM(base config.LLMConfig, value model.SysAIModelConfig) config.LLMConfig {
@@ -109,7 +186,8 @@ func modelConfigToLLM(base config.LLMConfig, value model.SysAIModelConfig) confi
 }
 
 // EnsureDefaultModelConfig makes the deployment configuration auditable from
-// the first request while preserving the environment-provided API key.
+// the first request. Its API key may be empty when all active configurations
+// bind encrypted database-managed credentials.
 func EnsureDefaultModelConfig(db *gorm.DB, cfg config.LLMConfig) error {
 	if db == nil || !cfg.Enabled {
 		return nil
@@ -155,6 +233,7 @@ type ModelConfigRequest struct {
 	Provider       string  `json:"provider" binding:"required,max=64"`
 	BaseURL        string  `json:"baseUrl" binding:"required,max=255"`
 	Model          string  `json:"model" binding:"required,max=128"`
+	CredentialID   uint64  `json:"credentialId"`
 	ConfigVersion  string  `json:"configVersion" binding:"required,max=64"`
 	PromptVersion  string  `json:"promptVersion" binding:"required,max=32"`
 	ResponseFormat string  `json:"responseFormat"`
@@ -167,6 +246,10 @@ type ModelConfigActionRequest struct {
 	Reason         string `json:"reason"`
 	CanaryPercent  int    `json:"canaryPercent"`
 	TargetConfigID uint64 `json:"targetConfigId"`
+}
+
+type ModelConfigCredentialRequest struct {
+	CredentialID uint64 `json:"credentialId"`
 }
 
 type ModelConfigHandler struct {
@@ -212,8 +295,17 @@ func (h *ModelConfigHandler) Create(c *gin.Context) {
 	if req.MaxTokens <= 0 {
 		req.MaxTokens = h.base.MaxTokens
 	}
+	if err := validateCredentialBinding(h.db, req.CredentialID); err != nil {
+		if errors.Is(err, ErrCredentialUnavailable) {
+			common.FailMsg(c, common.CodeParamInvalid, err.Error())
+		} else {
+			common.Fail(c, common.CodeDBError)
+		}
+		return
+	}
 	entry := model.SysAIModelConfig{
 		Name: req.Name, Provider: req.Provider, BaseURL: req.BaseURL, Model: req.Model,
+		CredentialID:  req.CredentialID,
 		ConfigVersion: req.ConfigVersion, PromptVersion: req.PromptVersion,
 		ResponseFormat: req.ResponseFormat, ThinkingMode: req.ThinkingMode,
 		MaxTokens: req.MaxTokens, Temperature: req.Temperature, Status: modelConfigDraft,
@@ -231,6 +323,65 @@ func (h *ModelConfigHandler) Create(c *gin.Context) {
 		return
 	}
 	common.OK(c, entry)
+}
+
+func (h *ModelConfigHandler) BindCredential(c *gin.Context) {
+	entry, ok := h.find(c)
+	if !ok {
+		return
+	}
+	if entry.Status == modelConfigActive || entry.Status == modelConfigCanary {
+		common.FailMsg(c, common.CodeParamInvalid, "激活或灰度配置不能直接更换凭证，请创建新候选配置")
+		return
+	}
+	var req ModelConfigCredentialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamInvalid)
+		return
+	}
+	if req.CredentialID == entry.CredentialID {
+		common.FailMsg(c, common.CodeParamInvalid, "模型配置已经绑定该凭证")
+		return
+	}
+	if err := validateCredentialBinding(h.db, req.CredentialID); err != nil {
+		if errors.Is(err, ErrCredentialUnavailable) {
+			common.FailMsg(c, common.CodeParamInvalid, err.Error())
+		} else {
+			common.Fail(c, common.CodeDBError)
+		}
+		return
+	}
+
+	now := time.Now()
+	summary := "凭证已变更，请重新执行质量门禁"
+	if req.CredentialID == 0 {
+		summary = "已解除凭证绑定，将使用环境变量 LLM_API_KEY；请重新执行质量门禁"
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&entry).Updates(map[string]interface{}{
+			"credential_id":      req.CredentialID,
+			"status":             modelConfigDraft,
+			"quality_passed":     false,
+			"quality_summary":    summary,
+			"quality_metrics":    "",
+			"quality_checked_at": nil,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.SysAIModelChange{
+			ConfigID: entry.ID, ToConfigID: entry.ID, ActorID: middleware.CurrentUserID(c),
+			Action: "bind_credential", Reason: summary, QualitySummary: summary, CreatedAt: now,
+		}).Error
+	}); err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	common.OK(c, gin.H{
+		"configId":      entry.ID,
+		"credentialId":  req.CredentialID,
+		"status":        modelConfigDraft,
+		"qualityPassed": false,
+	})
 }
 
 func (h *ModelConfigHandler) QualityGate(c *gin.Context) {
@@ -417,7 +568,7 @@ func (h *ModelConfigHandler) Rollback(c *gin.Context) {
 
 func (h *ModelConfigHandler) Changes(c *gin.Context) {
 	var rows []model.SysAIModelChange
-	query := h.db.Order("id DESC").Limit(500)
+	query := h.db.Order("created_at DESC").Order("id DESC").Limit(500)
 	if id := strings.TrimSpace(c.Query("configId")); id != "" {
 		query = query.Where("config_id = ?", id)
 	}
@@ -439,29 +590,37 @@ func (h *ModelConfigHandler) find(c *gin.Context) (model.SysAIModelConfig, bool)
 }
 
 func (h *ModelConfigHandler) runQualityGate(ctx context.Context, entry model.SysAIModelConfig) (bool, string, string) {
-	start := time.Now()
-	provider := ai.NewProvider(modelConfigToLLM(h.base, entry))
-	analysis, err := provider.AnalyzeCustomerIntent(ctx, intentConfigTestInput())
-	metrics := map[string]interface{}{"latencyMillis": time.Since(start).Milliseconds()}
+	cfg, err := resolveModelConfig(h.db, h.base, entry)
 	if err != nil {
-		metrics["errorType"], metrics["retryable"] = ai.ErrorInfo(err)
-		body, _ := json.Marshal(metrics)
-		return false, "模型调用失败，未通过质量门禁", string(body)
+		body, _ := json.Marshal(map[string]interface{}{
+			"errorType": ai.ErrorTypeConfig,
+			"message":   "AI 凭证不可用",
+		})
+		return false, "AI 凭证不可用，未通过质量门禁", string(body)
 	}
-	if analysis == nil || analysis.Result == nil {
-		body, _ := json.Marshal(metrics)
-		return false, "模型返回空结果，未通过质量门禁", string(body)
+	provider := ai.NewProvider(cfg)
+	promptVersion, promptContent := promptForVersion(h.db, entry.PromptVersion)
+	return runQualityGateWithPrompt(ctx, provider, promptVersion, promptContent)
+}
+
+func resolveModelConfig(db *gorm.DB, base config.LLMConfig, value model.SysAIModelConfig) (config.LLMConfig, error) {
+	cfg := modelConfigToLLM(base, value)
+	if value.CredentialID == 0 {
+		return cfg, nil
 	}
-	metrics["actualModel"] = analysis.Metadata.ActualModel
-	metrics["totalTokens"] = analysis.Metadata.TotalTokens
-	if err := validateIntentResult(analysis.Result); err != nil {
-		metrics["errorType"] = ai.ErrorTypeResultValidation
-		body, _ := json.Marshal(metrics)
-		return false, "模型结构化结果校验失败，未通过质量门禁", string(body)
+	var credential model.SysAICredential
+	if err := db.Where("status = ?", 1).First(&credential, value.CredentialID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return cfg, ErrCredentialUnavailable
+		}
+		return cfg, err
 	}
-	metrics["structuredOutput"] = true
-	body, _ := json.Marshal(metrics)
-	return true, fmt.Sprintf("固定样本通过；延迟 %dms，Token %d", metrics["latencyMillis"], analysis.Metadata.TotalTokens), string(body)
+	apiKey, err := security.DecryptSecret(base.CredentialEncryptionKey, credential.EncryptedAPIKey)
+	if err != nil {
+		return cfg, errors.New("AI 凭证解密失败")
+	}
+	cfg.APIKey = apiKey
+	return cfg, nil
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }

@@ -60,23 +60,24 @@ type JWTConfig struct {
 }
 
 type LLMConfig struct {
-	Enabled        bool          `yaml:"enabled"`
-	Provider       string        `yaml:"provider"`
-	BaseURL        string        `yaml:"base_url"`
-	APIKey         string        `yaml:"api_key"`
-	Model          string        `yaml:"model"`
-	Timeout        time.Duration `yaml:"-"`
-	TimeoutText    string        `yaml:"timeout"`
-	MaxTokens      int           `yaml:"max_tokens"`
-	Temperature    float32       `yaml:"temperature"`
-	ConfigVersion  string        `yaml:"config_version"`
-	PromptVersion  string        `yaml:"prompt_version"`
-	ResponseFormat string        `yaml:"response_format"`
-	ThinkingMode   string        `yaml:"thinking_mode"`
-	RetentionDays  int           `yaml:"retention_days"` // raw AI snapshots to keep; 0 disables cleanup
-	ArchiveDays    int           `yaml:"archive_days"`   // archived AI records to keep after live cleanup
-	Pricing        PricingConfig `yaml:"pricing"`
-	Quota          QuotaConfig   `yaml:"quota"`
+	Enabled                 bool          `yaml:"enabled"`
+	Provider                string        `yaml:"provider"`
+	BaseURL                 string        `yaml:"base_url"`
+	APIKey                  string        `yaml:"api_key"`
+	CredentialEncryptionKey string        `yaml:"credential_encryption_key"`
+	Model                   string        `yaml:"model"`
+	Timeout                 time.Duration `yaml:"-"`
+	TimeoutText             string        `yaml:"timeout"`
+	MaxTokens               int           `yaml:"max_tokens"`
+	Temperature             float32       `yaml:"temperature"`
+	ConfigVersion           string        `yaml:"config_version"`
+	PromptVersion           string        `yaml:"prompt_version"`
+	ResponseFormat          string        `yaml:"response_format"`
+	ThinkingMode            string        `yaml:"thinking_mode"`
+	RetentionDays           int           `yaml:"retention_days"` // raw AI snapshots to keep; 0 disables cleanup
+	ArchiveDays             int           `yaml:"archive_days"`   // archived AI records to keep after live cleanup
+	Pricing                 PricingConfig `yaml:"pricing"`
+	Quota                   QuotaConfig   `yaml:"quota"`
 }
 
 const (
@@ -429,6 +430,11 @@ func (c *Config) applyDefaults() {
 	if c.LLM.Provider == "" {
 		c.LLM.Provider = "openai-compatible"
 	}
+	if c.LLM.CredentialEncryptionKey == "" && c.App.Env != "prod" {
+		// Local development keeps working without another secret while
+		// production deployments can provide a dedicated key through env.
+		c.LLM.CredentialEncryptionKey = c.JWT.SigningKey
+	}
 	if c.LLM.ConfigVersion == "" {
 		c.LLM.ConfigVersion = "v1"
 	}
@@ -585,8 +591,8 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.LLM.BaseURL) == "" {
 			return fmt.Errorf("llm.base_url is required when llm.enabled=true")
 		}
-		if strings.TrimSpace(c.LLM.APIKey) == "" {
-			return fmt.Errorf("llm.api_key is required when llm.enabled=true; check LLM_API_KEY")
+		if c.App.Env == "prod" && strings.TrimSpace(c.LLM.CredentialEncryptionKey) == "" {
+			return fmt.Errorf("llm.credential_encryption_key is required in production; check LLM_CREDENTIAL_ENCRYPTION_KEY")
 		}
 		if strings.TrimSpace(c.LLM.Model) == "" {
 			return fmt.Errorf("llm.model is required when llm.enabled=true")

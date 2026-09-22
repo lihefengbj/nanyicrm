@@ -19,6 +19,9 @@ import type {
   IntentWorkbench,
   AIModelChange,
   AIModelConfig,
+  AICredential,
+  AIPrompt,
+  AIPromptChange,
   Opportunity,
   OpportunitySavePayload,
   PageQuery,
@@ -105,8 +108,27 @@ export function listAIModelConfigs(query?: PageQuery) {
   return get<PageResult<AIModelConfig>>('/crm/intent/model-config', query ? { ...query } : undefined)
 }
 
+export function listAICredentials() {
+  return get<AICredential[]>('/crm/intent/model-credential')
+}
+
+export function createAICredential(data: { name: string; provider: string; apiKey: string }) {
+  return post<AICredential>('/crm/intent/model-credential', data)
+}
+
+export function rotateAICredential(id: number, apiKey: string) {
+  return put<AICredential>(`/crm/intent/model-credential/${id}/rotate`, { apiKey })
+}
+
 export function createAIModelConfig(data: Omit<AIModelConfig, 'id' | 'status' | 'canaryPercent' | 'qualityPassed' | 'qualitySummary' | 'qualityMetrics' | 'qualityCheckedAt' | 'activatedAt' | 'createdAt'>) {
   return post<AIModelConfig>('/crm/intent/model-config', data)
+}
+
+export function bindAIModelCredential(id: number, credentialId: number) {
+  return put<{ configId: number; credentialId: number; status: AIModelConfig['status']; qualityPassed: boolean }>(
+    `/crm/intent/model-config/${id}/credential`,
+    { credentialId },
+  )
 }
 
 export function runAIModelQualityGate(id: number) {
@@ -127,6 +149,41 @@ export function rollbackAIModel(targetConfigId?: number, reason?: string) {
 
 export function listAIModelChanges(configId?: number) {
   return get<AIModelChange[]>('/crm/intent/model-config/changes', configId ? { configId } : undefined)
+}
+
+export function listAIPrompts(query?: PageQuery) {
+  return get<PageResult<AIPrompt>>('/crm/intent/prompt', query ? { ...query } : undefined)
+}
+
+export function createAIPrompt(data: { name: string; content: string }) {
+  return post<AIPrompt>('/crm/intent/prompt', data)
+}
+
+export function updateAIPrompt(id: number, data: { name: string; content: string }) {
+  return put<AIPrompt>(`/crm/intent/prompt/${id}`, data)
+}
+
+export function runAIPromptQualityGate(id: number) {
+  return post<{ passed: boolean; prompt: AIPrompt }>(`/crm/intent/prompt/${id}/quality-gate`)
+}
+
+export function setAIPromptCanary(id: number, canaryPercent: number, reason?: string) {
+  return post<{ status: string; canaryPercent: number; promptId: number }>(`/crm/intent/prompt/${id}/canary`, {
+    canaryPercent,
+    reason,
+  })
+}
+
+export function activateAIPrompt(id: number, reason?: string) {
+  return post<{ status: string; promptId: number }>(`/crm/intent/prompt/${id}/activate`, { reason })
+}
+
+export function rollbackAIPrompt(targetPromptId?: number, reason?: string) {
+  return post<{ status: string; promptId: number }>('/crm/intent/prompt/rollback', { targetPromptId, reason })
+}
+
+export function listAIPromptChanges(id: number) {
+  return get<AIPromptChange[]>(`/crm/intent/prompt/${id}/changes`)
 }
 
 // ---- contact ----

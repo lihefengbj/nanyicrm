@@ -38,7 +38,7 @@ curl http://localhost/healthz   # 经前端 nginx 反代
 - JWT signing key 至少 32 位且不能使用开发默认值；
 - 初始化管理员密码至少 12 位；
 - `metrics.token` 在生产环境至少 16 位且不能使用示例值；
-- LLM 开启时必须提供 HTTPS BaseURL、API Key 和模型名称。
+- LLM 开启时必须提供 HTTPS BaseURL 和模型名称；API Key 可通过环境变量 `LLM_API_KEY` 提供，或在 AI模型治理的凭证管理中加密保存并绑定到模型配置。生产环境启用数据库凭证时还必须提供 `LLM_CREDENTIAL_ENCRYPTION_KEY`。
 
 生产模式启动时会读取并执行嵌入到后端二进制中的 `backend/migrations/*.up.sql`，迁移状态保存在 MySQL `schema_migrations` 表。后续升级只需构建并重启后端，服务会自动执行尚未应用的迁移。
 

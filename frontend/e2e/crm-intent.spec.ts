@@ -3,6 +3,11 @@ import { test, expect } from '@playwright/test'
 const username = process.env.E2E_USERNAME
 const password = process.env.E2E_PASSWORD
 
+async function openMenuItem(page: import('@playwright/test').Page, parent: string, child: string) {
+  await page.locator('.el-sub-menu__title').filter({ hasText: new RegExp(`^${parent}$`) }).click()
+  await page.getByText(child, { exact: true }).click()
+}
+
 test.describe('CRM AI客户意向', () => {
   test.beforeEach(async ({ page }) => {
     test.skip(!username || !password, '需要设置 E2E_USERNAME 和 E2E_PASSWORD')
@@ -26,12 +31,13 @@ test.describe('CRM AI客户意向', () => {
   })
 
   test('打开客户意向详情并展示历史区域', async ({ page }) => {
-    await page.getByText('客户列表', { exact: true }).click()
-    await expect(page.getByText('客户名称', { exact: true })).toBeVisible()
+    await openMenuItem(page, '客户管理', '客户列表')
+    await expect(page.locator('.el-table__header-wrapper').getByText('客户名称', { exact: true })).toBeVisible()
 
     const detailButton = page.getByRole('button', { name: '意向详情' }).first()
     test.skip((await detailButton.count()) === 0, '测试环境没有已分析客户')
     await detailButton.click()
     await expect(page.getByText('AI客户意向', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Prompt版本：/).first()).toBeVisible()
   })
 })

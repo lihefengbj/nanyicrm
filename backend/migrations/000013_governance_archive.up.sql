@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS sys_ai_model_config (
   provider VARCHAR(64) NOT NULL,
   base_url VARCHAR(255) NOT NULL,
   model VARCHAR(128) NOT NULL,
+  credential_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   config_version VARCHAR(64) NOT NULL,
   prompt_version VARCHAR(32) NOT NULL,
   response_format VARCHAR(32) NULL,
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS sys_ai_model_config (
   PRIMARY KEY (id),
   UNIQUE KEY uk_sys_ai_model_config_version (config_version),
   KEY idx_sys_ai_model_config_status (status),
+  KEY idx_sys_ai_model_config_credential_id (credential_id),
   KEY idx_sys_ai_model_config_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

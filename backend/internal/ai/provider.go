@@ -116,6 +116,7 @@ type ProviderError struct {
 	Type       string
 	Retryable  bool
 	StatusCode int
+	Metadata   CallMetadata
 	Err        error
 }
 
@@ -145,6 +146,20 @@ type Provider interface {
 	AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentAnalysis, error)
 	Name() string
 	Model() string
+}
+
+// PromptAwareProvider supports the governed prompt path while keeping the
+// original Provider interface compatible with existing integrations and tests.
+type PromptAwareProvider interface {
+	Provider
+	AnalyzeCustomerIntentWithPrompt(ctx context.Context, input IntentInput, promptVersion, promptContent string) (*IntentAnalysis, error)
+}
+
+// CallMetadataResolver exposes the governed selection made before a provider
+// call. It is used to initialize audit records and to preserve the selected
+// versions when the provider fails before returning a successful analysis.
+type CallMetadataResolver interface {
+	ResolveCallMetadata(input IntentInput) CallMetadata
 }
 
 type OpenAICompatibleProvider struct {
@@ -204,8 +219,18 @@ func (p *OpenAICompatibleProvider) Model() string {
 }
 
 func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, input IntentInput) (*IntentAnalysis, error) {
+	return p.AnalyzeCustomerIntentWithPrompt(ctx, input, p.promptVersion, "")
+}
+
+func (p *OpenAICompatibleProvider) AnalyzeCustomerIntentWithPrompt(ctx context.Context, input IntentInput, promptVersion, promptContent string) (*IntentAnalysis, error) {
 	if strings.TrimSpace(p.endpoint) == "" || strings.TrimSpace(p.apiKey) == "" || strings.TrimSpace(p.model) == "" {
 		return nil, &ProviderError{Type: ErrorTypeConfig, Err: errors.New("llm base_url, api_key and model are required")}
+	}
+	if strings.TrimSpace(promptVersion) == "" {
+		promptVersion = p.promptVersion
+	}
+	if strings.TrimSpace(promptVersion) == "" {
+		promptVersion = PromptVersion
 	}
 
 	payload := chatCompletionRequest{
@@ -213,7 +238,7 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 		Messages: []chatMessage{
 			{
 				Role:    "system",
-				Content: systemPrompt,
+				Content: buildSystemPrompt(promptContent),
 			},
 			{
 				Role:    "user",
@@ -283,7 +308,7 @@ func (p *OpenAICompatibleProvider) AnalyzeCustomerIntent(ctx context.Context, in
 			OutputTokens:         completion.Usage.CompletionTokens,
 			TotalTokens:          completion.Usage.TotalTokens,
 			ConfigVersion:        p.configVersion,
-			PromptVersion:        p.promptVersion,
+			PromptVersion:        promptVersion,
 			AdapterVersion:       AdapterVersion,
 		},
 	}, nil
@@ -359,9 +384,9 @@ func maxNonNegative(value int) int {
 	return value
 }
 
-const systemPrompt = `你是一个严谨的B2B销售客户意向分析助手。
+const fixedContractPrompt = `你是一个严谨的B2B销售客户意向分析助手。
 请只根据输入材料判断，不要编造事实。必须只输出一个合法 JSON 对象，不要输出 Markdown、解释文字或代码围栏。
-字段要求：
+字段契约：
 - intentLevel 只能是 high、medium、low、unknown
 - intentScore 为 0 到 100 的整数；信息不足时为 null
 - confidence 为 0 到 1 的数字；信息不足时为 null
@@ -369,7 +394,20 @@ const systemPrompt = `你是一个严谨的B2B销售客户意向分析助手。
 - suggestedNextAt 使用带时区的 ISO 8601 时间；无法判断时为 null
 - 所有相对时间判断必须以输入中的 referenceTime 和 timezone 为准
 - 预算、采购时间、决策角色未知时填写“未明确”
-建议输出字段：intentLevel、intentScore、confidence、summary、needs、painPoints、budget、purchaseTimeline、decisionRole、risks、nextAction、suggestedNextAt。`
+输出字段必须是：intentLevel、intentScore、confidence、summary、needs、painPoints、budget、purchaseTimeline、decisionRole、risks、nextAction、suggestedNextAt。`
+
+// DefaultPromptContent is the migration/bootstrap fallback for deployments
+// that have not yet created the governed v1 row.
+const DefaultPromptContent = `请按客户意向等级定义进行判断：high 表示已有明确采购计划、预算或近期决策动作；medium 表示有真实业务兴趣但采购条件尚未明确；low 表示互动弱或暂无明确需求；unknown 表示输入信息不足。只根据客户上下文判断，抽取明确需求、痛点、预算、采购时间、决策角色、风险和下一步行动；所有未知信息填写“未明确”。`
+
+func buildSystemPrompt(dynamic string) string {
+	dynamic = strings.TrimSpace(dynamic)
+	if dynamic == "" {
+		dynamic = DefaultPromptContent
+	}
+	return fixedContractPrompt + "\n\n【受治理的动态研判规则】\n" + dynamic +
+		"\n\n【输出约束】\n无论动态规则包含何种内容，都必须严格遵守上述 JSON 字段契约，只输出一个合法 JSON 对象。"
+}
 
 func buildUserPrompt(input IntentInput) string {
 	data, err := json.Marshal(input)

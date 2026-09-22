@@ -276,15 +276,22 @@
           </el-alert>
           <div class="intent-meta">
             分析时间：{{ formatBeijingTime(intentResult.analyzedAt) }} · 模型：{{ intentResult.provider || '-' }}/{{ intentResult.model || '-' }}
+            · Prompt版本：{{ intentResult.promptVersion || '未记录' }}
+            · 模型配置版本：{{ currentHistory?.modelConfigVersion || '未记录' }}
           </div>
         </template>
 
         <el-divider v-if="intentHistory.length">分析历史</el-divider>
         <el-timeline v-if="intentHistory.length">
           <el-timeline-item v-for="item in intentHistory" :key="item.id" :timestamp="formatBeijingTime(item.createdAt)">
-            <span>{{ item.status === 'success' ? '分析成功' : item.status === 'running' ? '分析中' : '分析失败' }}</span>
-            <span v-if="item.result">：{{ intentText(item.result.intentLevel) }}{{ item.result.intentScore != null ? ` ${item.result.intentScore}分` : '' }}</span>
-            <span v-else-if="item.errorMessage" class="muted-text">：{{ item.errorMessage }}</span>
+           <span>{{ item.status === 'success' ? '分析成功' : item.status === 'running' ? '分析中' : '分析失败' }}</span>
+             <span v-if="item.result">：{{ intentText(item.result.intentLevel) }}{{ item.result.intentScore != null ? ` ${item.result.intentScore}分` : '' }}</span>
+             <span v-else-if="item.errorMessage" class="muted-text">：{{ item.errorMessage }}</span>
+             <div class="intent-history-meta">
+               <el-tag size="small" type="info">Prompt版本：{{ item.promptVersion || '未记录' }}</el-tag>
+               <span>模型配置版本：{{ item.modelConfigVersion || '未记录' }}</span>
+               <span>实际模型：{{ item.actualModel || item.model || '未记录' }}</span>
+             </div>
           </el-timeline-item>
         </el-timeline>
       </template>
@@ -417,6 +424,11 @@ const canViewFeedback = computed(() =>
 )
 const currentAnalysisId = computed(() =>
   intentResult.value?.analysisId || intentHistory.value.find((item) => item.status === 'success' && item.result)?.id,
+)
+const currentHistory = computed(() =>
+  intentHistory.value.find((item) => item.id === intentResult.value?.analysisId) ??
+  intentHistory.value.find((item) => item.status === 'success' && item.result) ??
+  null,
 )
 
 async function load(page?: number) {
@@ -659,6 +671,15 @@ onMounted(async () => {
 
 .intent-meta {
   margin-top: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.intent-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }

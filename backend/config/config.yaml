@@ -33,6 +33,7 @@ llm:
   provider: deepseek
   base_url: "https://api.deepseek.com"
   api_key: "${LLM_API_KEY}"
+  credential_encryption_key: "${LLM_CREDENTIAL_ENCRYPTION_KEY}"
   model: "deepseek-flash"
   timeout: 30s
   max_tokens: 1200

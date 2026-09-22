@@ -284,7 +284,7 @@ func TestValidateRejectsMissingMySQLDSN(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsEnabledLLMWithoutCredentials(t *testing.T) {
+func TestValidateAllowsManagedCredentialsWithoutGlobalAPIKey(t *testing.T) {
 	cfg := defaults()
 	cfg.MySQL = []MySQLConfig{{Name: "default", DSN: "root:pwd@tcp(127.0.0.1:3306)/nanyicrm"}}
 	cfg.Redis.Addr = "127.0.0.1:6379"
@@ -292,8 +292,8 @@ func TestValidateRejectsEnabledLLMWithoutCredentials(t *testing.T) {
 	cfg.LLM.Provider = "deepseek"
 	cfg.LLM.BaseURL = "https://api.deepseek.com"
 	cfg.LLM.Model = "deepseek-flash"
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("Validate accepted enabled LLM without API key")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate rejected database-managed credentials without global API key: %v", err)
 	}
 }
 

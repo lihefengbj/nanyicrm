@@ -505,6 +505,7 @@ export interface AIModelConfig {
   provider: string
   baseUrl: string
   model: string
+  credentialId: number
   configVersion: string
   promptVersion: string
   responseFormat: string
@@ -521,6 +522,16 @@ export interface AIModelConfig {
   createdAt: string
 }
 
+export interface AICredential {
+  id: number
+  name: string
+  provider: string
+  keyLast4: string
+  status: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AIModelChange {
   id: number
   configId: number
@@ -529,6 +540,40 @@ export interface AIModelChange {
   actorId: number
   action: string
   reason: string
+  qualitySummary: string
+  createdAt: string
+}
+
+export interface AIPrompt {
+  id: number
+  name: string
+  content: string
+  contentHash: string
+  version: string
+  status: 'draft' | 'approved' | 'active' | 'canary' | 'retired'
+  canaryPercent: number
+  qualityPassed: boolean
+  qualitySummary: string
+  qualityMetrics: string
+  qualityCheckedAt?: string
+  activatedAt?: string
+  retiredAt?: string
+  createdBy: number
+  updatedBy: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AIPromptChange {
+  id: number
+  promptId: number
+  fromPromptId: number
+  toPromptId: number
+  actorId: number
+  action: string
+  reason: string
+  fromVersion: string
+  toVersion: string
   qualitySummary: string
   createdAt: string
 }

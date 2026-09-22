@@ -82,6 +82,66 @@ func logIntentAnalysisError(stage string, customer *model.CrmCustomer, err error
 		stage, customer.TenantID, customer.ID, err)
 }
 
+func applyCallMetadata(history *model.CrmCustomerIntentAnalysis, metadata ai.CallMetadata) {
+	if history == nil {
+		return
+	}
+	if metadata.ConfiguredProvider != "" {
+		history.Provider = metadata.ConfiguredProvider
+	}
+	if metadata.ConfiguredModel != "" {
+		history.Model = metadata.ConfiguredModel
+	}
+	if metadata.ActualModel != "" {
+		history.ActualModel = metadata.ActualModel
+	}
+	if metadata.ConfigVersion != "" {
+		history.ModelConfigVersion = metadata.ConfigVersion
+	}
+	if metadata.PromptVersion != "" {
+		history.PromptVersion = metadata.PromptVersion
+	}
+	if metadata.AdapterVersion != "" {
+		history.AdapterVersion = metadata.AdapterVersion
+	}
+	if metadata.RequestID != "" {
+		history.ProviderRequestID = metadata.RequestID
+	}
+}
+
+// logIntentAnalysisEvent writes only non-sensitive call metadata. It
+// deliberately excludes the customer snapshot, prompt content, and API key.
+func logIntentAnalysisEvent(customer *model.CrmCustomer, history *model.CrmCustomerIntentAnalysis, duration time.Duration) {
+	if history == nil {
+		return
+	}
+	fields := map[string]interface{}{
+		"event":                "ai_intent_analysis",
+		"status":               history.Status,
+		"tenant_id":            history.TenantID,
+		"customer_id":          history.CustomerID,
+		"analysis_id":          history.ID,
+		"provider":             history.Provider,
+		"model":                history.Model,
+		"actual_model":         history.ActualModel,
+		"model_config_version": history.ModelConfigVersion,
+		"prompt_version":       history.PromptVersion,
+		"adapter_version":      history.AdapterVersion,
+		"input_hash":           history.InputHash,
+		"provider_request_id":  history.ProviderRequestID,
+		"error_type":           history.ErrorType,
+		"duration_ms":          duration.Milliseconds(),
+	}
+	if customer != nil {
+		fields["trigger_user_id"] = history.TriggerUserID
+	}
+	data, err := json.Marshal(fields)
+	if err != nil {
+		return
+	}
+	log.Printf("%s", data)
+}
+
 const intentHistoryWriteAttempts = 3
 
 func isInvalidDatabaseConnection(err error) bool {
@@ -614,16 +674,26 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 		PromptVersion: ai.PromptVersion,
 		InputHash:     fmt.Sprintf("%x", inputHash),
 	}
+	if resolver, ok := h.provider.(ai.CallMetadataResolver); ok {
+		applyCallMetadata(&history, resolver.ResolveCallMetadata(input))
+	}
 	if err := h.createIntentAnalysisHistory(ctx, &history); err != nil {
 		return nil, fmt.Errorf("create intent analysis history: %w", err)
 	}
 
 	start := time.Now()
+	defer func() {
+		logIntentAnalysisEvent(customer, &history, time.Since(start))
+	}()
 	history.BillingPeriod = h.pricing.PeriodAt(start)
 	analysis, err := h.provider.AnalyzeCustomerIntent(ctx, input)
 	history.CostMillis = time.Since(start).Milliseconds()
 	if err != nil {
 		errorType, retryable := ai.ErrorInfo(err)
+		var providerErr *ai.ProviderError
+		if errors.As(err, &providerErr) {
+			applyCallMetadata(&history, providerErr.Metadata)
+		}
 		history.Status = intentStatusFailed
 		history.ErrorType = errorType
 		history.ErrorMessage = truncateIntentError(err.Error(), 1024)
@@ -644,27 +714,18 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 		return nil, &intentAnalysisError{errorType: ai.ErrorTypeEmptyResponse, cause: err}
 	}
 	result := analysis.Result
-	if analysis.Metadata.ConfiguredProvider != "" {
-		history.Provider = analysis.Metadata.ConfiguredProvider
-	}
-	history.ActualModel = analysis.Metadata.ActualModel
-	if analysis.Metadata.ConfiguredModel != "" {
-		history.Model = analysis.Metadata.ConfiguredModel
+	applyCallMetadata(&history, analysis.Metadata)
+	if history.ActualModel == "" {
+		history.ActualModel = history.Model
 	}
 	if history.ActualModel == "" {
 		history.ActualModel = h.provider.Model()
 	}
-	history.ModelConfigVersion = analysis.Metadata.ConfigVersion
-	if analysis.Metadata.PromptVersion != "" {
-		history.PromptVersion = analysis.Metadata.PromptVersion
-	}
-	history.AdapterVersion = analysis.Metadata.AdapterVersion
 	history.InputTokens = analysis.Metadata.InputTokens
 	history.InputCacheHitTokens = analysis.Metadata.InputCacheHitTokens
 	history.InputCacheMissTokens = analysis.Metadata.InputCacheMissTokens
 	history.OutputTokens = analysis.Metadata.OutputTokens
 	history.TotalTokens = analysis.Metadata.TotalTokens
-	history.ProviderRequestID = analysis.Metadata.RequestID
 	// Token accounting happens even when result validation fails below: the
 	// provider billed the call regardless.
 	if h.quota != nil {
@@ -982,6 +1043,12 @@ func (h *IntentHandler) historyResponse(history *model.CrmCustomerIntentAnalysis
 				Base:     model.Base{ID: history.CustomerID},
 				TenantID: history.TenantID,
 			}, &parsed, valueOrNow(history.AnalyzedAt), history.ID)
+			current.Provider = history.Provider
+			current.Model = history.ActualModel
+			if current.Model == "" {
+				current.Model = history.Model
+			}
+			current.PromptVersion = history.PromptVersion
 			resultValue := h.toResponse(&current)
 			result = &resultValue
 		}

@@ -33,6 +33,7 @@ func TestRealMySQLAndRedis(t *testing.T) {
 		t.Fatalf("versioned migrations: %v", err)
 	}
 	for _, table := range []string{
+		"sys_ai_credential",
 		"sys_ai_model_config",
 		"sys_ai_model_change",
 		"crm_customer_intent_analysis_archive",

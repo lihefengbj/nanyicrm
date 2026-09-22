@@ -176,12 +176,24 @@ type SysLoginLog struct {
 
 func (SysLoginLog) TableName() string { return "sys_login_log" }
 
+type SysAICredential struct {
+	Base
+	Name            string `gorm:"size:64;not null" json:"name"`
+	Provider        string `gorm:"size:64;not null" json:"provider"`
+	EncryptedAPIKey string `gorm:"type:text;not null" json:"-"`
+	KeyLast4        string `gorm:"size:8;not null" json:"keyLast4"`
+	Status          int8   `gorm:"not null;default:1" json:"status"` // 1 enabled, 0 disabled
+}
+
+func (SysAICredential) TableName() string { return "sys_ai_credential" }
+
 type SysAIModelConfig struct {
 	Base
 	Name             string     `gorm:"size:64;not null" json:"name"`
 	Provider         string     `gorm:"size:64;not null" json:"provider"`
 	BaseURL          string     `gorm:"size:255;not null" json:"baseUrl"`
 	Model            string     `gorm:"size:128;not null" json:"model"`
+	CredentialID     uint64     `gorm:"index;not null;default:0" json:"credentialId"`
 	ConfigVersion    string     `gorm:"size:64;uniqueIndex;not null" json:"configVersion"`
 	PromptVersion    string     `gorm:"size:32;not null" json:"promptVersion"`
 	ResponseFormat   string     `gorm:"size:32" json:"responseFormat"`
@@ -212,6 +224,47 @@ type SysAIModelChange struct {
 }
 
 func (SysAIModelChange) TableName() string { return "sys_ai_model_change" }
+
+// SysAIPrompt is a platform-level, versioned prompt policy. The content is
+// only the configurable reasoning section; the JSON output contract remains
+// owned by the AI adapter code.
+type SysAIPrompt struct {
+	Base
+	Name             string     `gorm:"size:64;not null" json:"name"`
+	Content          string     `gorm:"type:text;not null" json:"content"`
+	ContentHash      string     `gorm:"size:64;uniqueIndex;not null" json:"contentHash"`
+	Version          string     `gorm:"size:32;uniqueIndex;not null" json:"version"`
+	Status           string     `gorm:"size:16;index;not null" json:"status"` // draft, approved, active, canary, retired
+	CanaryPercent    int        `json:"canaryPercent"`
+	QualityPassed    bool       `json:"qualityPassed"`
+	QualitySummary   string     `gorm:"type:text" json:"qualitySummary"`
+	QualityMetrics   string     `gorm:"type:text" json:"qualityMetrics"`
+	QualityCheckedAt *time.Time `json:"qualityCheckedAt"`
+	ActivatedAt      *time.Time `json:"activatedAt"`
+	RetiredAt        *time.Time `json:"retiredAt"`
+	CreatedBy        uint64     `gorm:"index" json:"createdBy"`
+	UpdatedBy        uint64     `gorm:"index" json:"updatedBy"`
+}
+
+func (SysAIPrompt) TableName() string { return "sys_ai_prompt" }
+
+// SysAIPromptChange is an append-only audit trail for prompt governance.
+// Prompt contents are intentionally not copied into audit records.
+type SysAIPromptChange struct {
+	ID             uint64    `gorm:"primaryKey" json:"id"`
+	PromptID       uint64    `gorm:"index;not null" json:"promptId"`
+	FromPromptID   uint64    `json:"fromPromptId"`
+	ToPromptID     uint64    `json:"toPromptId"`
+	ActorID        uint64    `gorm:"index" json:"actorId"`
+	Action         string    `gorm:"size:32;not null" json:"action"`
+	Reason         string    `gorm:"size:512" json:"reason"`
+	FromVersion    string    `gorm:"size:32" json:"fromVersion"`
+	ToVersion      string    `gorm:"size:32" json:"toVersion"`
+	QualitySummary string    `gorm:"type:text" json:"qualitySummary"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+func (SysAIPromptChange) TableName() string { return "sys_ai_prompt_change" }
 
 type CrmCustomerIntentAnalysisArchive struct {
 	ID                 uint64    `gorm:"primaryKey" json:"id"`

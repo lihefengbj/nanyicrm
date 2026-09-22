@@ -80,6 +80,9 @@ func main() {
 	if err := crm.EnsureDefaultModelConfig(db, cfg.LLM); err != nil {
 		log.Fatalf("model config: %v", err)
 	}
+	if err := crm.EnsureDefaultPrompt(db); err != nil {
+		log.Fatalf("prompt config: %v", err)
+	}
 	if err := seed.Run(db, cfg.Bootstrap); err != nil {
 		log.Fatalf("seed: %v", err)
 	}
