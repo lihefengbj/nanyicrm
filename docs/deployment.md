@@ -123,6 +123,7 @@ HAVING COUNT(*) > 1;
 - 发布流程为 `draft → quality gate → pending approval → approved → canary/active`。质量门禁与人工审批独立记录；审批人填写审批意见并通过后，才允许灰度、激活或回滚。重新编辑配置、变更凭证或重新执行质量门禁会将审批状态重置为待审批。
 - 客户列表中的批量 AI 分析会打开任务面板，展示排队、处理中、成功、失败和取消数量；任务完成后可从失败明细创建新的有限重试任务，原任务记录保持不变。
 - AI 意向指标页面中的「评分校准与人工反馈一致性」按模型配置版本和 Prompt 版本统计样本数、分数分布、等级分布及人工反馈一致率。该指标用于观察，不会自动修改客户意向分数。
+- 跨模型评分尺度校准使用人工修正的高/中/低等级锚点（90/65/25）拟合建议映射；每个治理版本至少需要 5 条人工标注且原始分数有足够变化才可用，`insufficient_data`/`insufficient_range` 只提示原因，不参与业务改分。
 - 校准接口为 `GET /api/v1/crm/intent/calibration`，沿用 `crm:intent:metrics` 权限和租户隔离。
 - `/metrics` 提供 Prometheus 兼容指标，生产环境使用 `X-Metrics-Token` 保护。
 - 异常登录达到配置阈值后，通过 Redis 去重并向 `ALERTS_WEBHOOK_URL` 发送 JSON 告警。

@@ -13,20 +13,31 @@ import (
 )
 
 type IntentCalibrationGroup struct {
-	Provider                string           `json:"provider"`
-	Model                   string           `json:"model"`
-	ActualModel             string           `json:"actualModel"`
-	ModelConfigVersion      string           `json:"modelConfigVersion"`
-	PromptVersion           string           `json:"promptVersion"`
-	SampleCount             int64            `json:"sampleCount"`
-	ScoredCount             int64            `json:"scoredCount"`
-	AverageScore            float64          `json:"averageScore"`
-	MedianScore             float64          `json:"medianScore"`
-	P95Score                float64          `json:"p95Score"`
-	LevelDistribution       map[string]int64 `json:"levelDistribution"`
-	FeedbackCount           int64            `json:"feedbackCount"`
-	ConsistentFeedbackCount int64            `json:"consistentFeedbackCount"`
-	ConsistencyRate         float64          `json:"consistencyRate"`
+	Provider                string                 `json:"provider"`
+	Model                   string                 `json:"model"`
+	ActualModel             string                 `json:"actualModel"`
+	ModelConfigVersion      string                 `json:"modelConfigVersion"`
+	PromptVersion           string                 `json:"promptVersion"`
+	SampleCount             int64                  `json:"sampleCount"`
+	ScoredCount             int64                  `json:"scoredCount"`
+	AverageScore            float64                `json:"averageScore"`
+	MedianScore             float64                `json:"medianScore"`
+	P95Score                float64                `json:"p95Score"`
+	LevelDistribution       map[string]int64       `json:"levelDistribution"`
+	FeedbackCount           int64                  `json:"feedbackCount"`
+	ConsistentFeedbackCount int64                  `json:"consistentFeedbackCount"`
+	ConsistencyRate         float64                `json:"consistencyRate"`
+	ScoreCalibration        IntentScoreCalibration `json:"scoreCalibration"`
+}
+
+type IntentScoreCalibration struct {
+	Status                 string  `json:"status"`
+	Method                 string  `json:"method"`
+	LabeledSampleCount     int64   `json:"labeledSampleCount"`
+	Slope                  float64 `json:"slope"`
+	Intercept              float64 `json:"intercept"`
+	MeanAbsoluteError      float64 `json:"meanAbsoluteError"`
+	CalibratedAverageScore float64 `json:"calibratedAverageScore"`
 }
 
 type IntentCalibrationResponse struct {
@@ -36,8 +47,28 @@ type IntentCalibrationResponse struct {
 }
 
 type intentCalibrationAccumulator struct {
-	group  IntentCalibrationGroup
-	scores []int
+	group          IntentCalibrationGroup
+	scores         []int
+	labeledSamples []intentScoreCalibrationSample
+}
+
+type intentScoreCalibrationSample struct {
+	rawScore    float64
+	targetScore float64
+}
+
+const (
+	intentScoreCalibrationReady             = "ready"
+	intentScoreCalibrationInsufficientData  = "insufficient_data"
+	intentScoreCalibrationInsufficientRange = "insufficient_range"
+	intentScoreCalibrationMethod            = "linear_business_anchor_v1"
+	intentScoreCalibrationMinSamples        = 5
+)
+
+var intentScoreCalibrationAnchors = map[string]float64{
+	"high":   90,
+	"medium": 65,
+	"low":    25,
 }
 
 // Calibration reports score and feedback consistency by governed model
@@ -121,10 +152,16 @@ func (h *IntentHandler) Calibration(c *gin.Context) {
 		common.Fail(c, common.CodeDBError)
 		return
 	}
+	latestFeedback := make(map[uint64]model.CrmCustomerIntentFeedback)
 	for _, item := range feedback {
 		acc := analysisGroups[item.AnalysisID]
 		if acc == nil {
 			continue
+		}
+		previous, alreadySeen := latestFeedback[item.AnalysisID]
+		if !alreadySeen || item.CreatedAt.After(previous.CreatedAt) ||
+			(item.CreatedAt.Equal(previous.CreatedAt) && item.ID > previous.ID) {
+			latestFeedback[item.AnalysisID] = item
 		}
 		acc.group.FeedbackCount++
 		result, exists := analysisResults[item.AnalysisID]
@@ -138,6 +175,14 @@ func (h *IntentHandler) Calibration(c *gin.Context) {
 		if consistent {
 			acc.group.ConsistentFeedbackCount++
 		}
+	}
+	for analysisID, item := range latestFeedback {
+		acc := analysisGroups[analysisID]
+		result, exists := analysisResults[analysisID]
+		if acc == nil || !exists {
+			continue
+		}
+		appendIntentScoreCalibrationSample(acc, result, item)
 	}
 
 	result := IntentCalibrationResponse{From: from, To: to, Groups: make([]IntentCalibrationGroup, 0, len(groups))}
@@ -155,6 +200,7 @@ func (h *IntentHandler) Calibration(c *gin.Context) {
 		if acc.group.FeedbackCount > 0 {
 			acc.group.ConsistencyRate = float64(acc.group.ConsistentFeedbackCount) / float64(acc.group.FeedbackCount)
 		}
+		acc.group.ScoreCalibration = fitIntentScoreCalibration(acc.labeledSamples, acc.scores)
 		result.Groups = append(result.Groups, acc.group)
 	}
 	sort.SliceStable(result.Groups, func(i, j int) bool {
@@ -167,6 +213,95 @@ func (h *IntentHandler) Calibration(c *gin.Context) {
 		return result.Groups[i].ModelConfigVersion < result.Groups[j].ModelConfigVersion
 	})
 	common.OK(c, result)
+}
+
+func fitIntentScoreCalibration(samples []intentScoreCalibrationSample, allScores []int) IntentScoreCalibration {
+	calibration := IntentScoreCalibration{
+		Status:             intentScoreCalibrationInsufficientData,
+		Method:             intentScoreCalibrationMethod,
+		LabeledSampleCount: int64(len(samples)),
+	}
+	if len(samples) < intentScoreCalibrationMinSamples {
+		return calibration
+	}
+
+	var sumX, sumY float64
+	targets := make(map[float64]struct{})
+	for _, sample := range samples {
+		sumX += sample.rawScore
+		sumY += sample.targetScore
+		targets[sample.targetScore] = struct{}{}
+	}
+	if len(targets) < 2 {
+		calibration.Status = intentScoreCalibrationInsufficientRange
+		return calibration
+	}
+
+	meanX := sumX / float64(len(samples))
+	meanY := sumY / float64(len(samples))
+	var covariance, variance float64
+	for _, sample := range samples {
+		dx := sample.rawScore - meanX
+		covariance += dx * (sample.targetScore - meanY)
+		variance += dx * dx
+	}
+	if variance == 0 {
+		calibration.Status = intentScoreCalibrationInsufficientRange
+		return calibration
+	}
+
+	calibration.Slope = covariance / variance
+	calibration.Intercept = meanY - calibration.Slope*meanX
+	if calibration.Slope <= 0 {
+		calibration.Status = intentScoreCalibrationInsufficientRange
+		calibration.Slope = 0
+		calibration.Intercept = 0
+		return calibration
+	}
+
+	var absoluteError float64
+	for _, sample := range samples {
+		absoluteError += absFloat(clampIntentScore(calibration.Slope*sample.rawScore+calibration.Intercept) - sample.targetScore)
+	}
+	calibration.MeanAbsoluteError = absoluteError / float64(len(samples))
+
+	if len(allScores) > 0 {
+		var total float64
+		for _, score := range allScores {
+			total += clampIntentScore(calibration.Slope*float64(score) + calibration.Intercept)
+		}
+		calibration.CalibratedAverageScore = total / float64(len(allScores))
+	}
+	calibration.Status = intentScoreCalibrationReady
+	return calibration
+}
+
+func appendIntentScoreCalibrationSample(acc *intentCalibrationAccumulator, result ai.IntentResult, feedback model.CrmCustomerIntentFeedback) {
+	target, ok := intentScoreCalibrationAnchors[feedback.ManualIntentLevel]
+	if !ok || result.IntentScore == nil {
+		return
+	}
+	acc.labeledSamples = append(acc.labeledSamples, intentScoreCalibrationSample{
+		rawScore:    float64(*result.IntentScore),
+		targetScore: target,
+	})
+}
+
+func clampIntentScore(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func absFloat(value float64) float64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func percentileScore(values []int, percentile float64) float64 {

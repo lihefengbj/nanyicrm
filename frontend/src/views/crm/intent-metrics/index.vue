@@ -173,6 +173,18 @@
             {{ row.feedbackCount ? formatPercent(row.consistencyRate) : '暂无反馈' }}
           </template>
         </el-table-column>
+        <el-table-column label="跨模型校准" min-width="250">
+          <template #default="{ row }">
+            <template v-if="row.scoreCalibration.status === 'ready'">
+              <el-tag type="success">可用</el-tag>
+              <span class="calibration-summary">
+                y={{ row.scoreCalibration.slope.toFixed(2) }}x{{ row.scoreCalibration.intercept >= 0 ? '+' : '' }}{{ row.scoreCalibration.intercept.toFixed(1) }}
+                · MAE {{ row.scoreCalibration.meanAbsoluteError.toFixed(1) }}
+              </span>
+            </template>
+            <el-tag v-else type="info">{{ calibrationStatusText(row.scoreCalibration) }}</el-tag>
+          </template>
+        </el-table-column>
       </el-table>
       <el-empty v-if="!calibration.groups.length" description="暂无可校准样本" />
     </el-card>
@@ -243,7 +255,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getIntentCalibration, getIntentMetrics } from '@/api/crm'
 import { listAllTenants } from '@/api/system'
-import type { IntentCalibration, IntentMetricGroup, IntentMetrics, Tenant } from '@/types/api'
+import type { IntentCalibration, IntentMetricGroup, IntentMetrics, IntentScoreCalibration, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
@@ -342,6 +354,11 @@ function formatCost(value: number) {
 
 function displayValue(value: string) {
   return value?.trim() || '—'
+}
+
+function calibrationStatusText(calibration: IntentScoreCalibration) {
+  if (calibration.status === 'insufficient_range') return `数据范围不足（${calibration.labeledSampleCount}条）`
+  return `人工样本不足（${calibration.labeledSampleCount}/5）`
 }
 
 function formatPeriod(period: IntentMetricGroup['billingPeriod']) {
@@ -467,6 +484,11 @@ onMounted(async () => {
 }
 .status-summary {
   color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+.calibration-summary {
+  margin-left: 6px;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

@@ -514,6 +514,17 @@ export interface IntentCalibrationGroup {
   feedbackCount: number
   consistentFeedbackCount: number
   consistencyRate: number
+  scoreCalibration: IntentScoreCalibration
+}
+
+export interface IntentScoreCalibration {
+  status: 'ready' | 'insufficient_data' | 'insufficient_range'
+  method: string
+  labeledSampleCount: number
+  slope: number
+  intercept: number
+  meanAbsoluteError: number
+  calibratedAverageScore: number
 }
 
 export interface IntentCalibration {
