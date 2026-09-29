@@ -755,6 +755,29 @@ go run ./cmd/purge-intent-data
   - 延迟与 Token 成本，与当前激活版本对比。
 - 门禁结果摘要写入 `sys_ai_prompt_change`，作为审计依据。
 
+##### 11.9.3.1 质量门禁执行反馈
+
+质量门禁属于多次模型调用组成的长任务，管理端不得只依赖最终 Toast 判断是否执行成功。执行流程如下：
+
+- 点击质量门禁后立即创建执行批次，接口返回 `runId`，候选版本保持原状态，不能因为任务启动就提前进入“已通过”。
+- 后台按 `high-intent`、`medium-intent`、`low-intent`、`unknown-intent` 顺序执行固定样本，并记录每个样本的 `queued/running/passed/failed` 状态。
+- 管理端通过执行详情接口轮询进度，展示当前样本、已完成数量、耗时、失败原因和最终质量指标。
+- 质量门禁状态区分 `not_run`（未执行）、`running`（执行中）、`passed`（通过）和 `failed`（未通过）；`qualityPassed=false` 且没有 `qualityCheckedAt` 时只能展示“未执行”，不能展示“未通过”。
+- 两类入口使用同一门禁引擎和同一组固定样本，但测试对象不同：模型列表入口命名为「模型门禁」，使用候选模型自身凭证与配置；Prompt 列表入口命名为「Prompt门禁」，复用当前激活模型配置。执行详情需标注测试对象及实际执行的配置版本与 Prompt 版本。
+- 全部样本结束后才一次性写入候选配置或 Prompt 的质量结果、摘要、指标和审计记录；执行中的批次服务重启后不自动恢复，管理端可重新发起门禁。
+- 批次收尾写入失败或执行协程中断时必须有兜底：进度更新失败要记录日志并重试；执行协程 panic 时标记批次失败；查询进度时发现批次超过 6 分钟无任何进度更新，应自动标记为失败并提示重新执行，管理端不得无限停留在“执行中”。
+
+执行批次接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/v1/crm/intent/model-config/:id/quality-gate` | 创建模型配置质量门禁批次，返回 `runId` |
+| GET | `/api/v1/crm/intent/model-config/quality-gate-runs/:runId` | 查询模型配置质量门禁进度与结果 |
+| POST | `/api/v1/crm/intent/prompt/:id/quality-gate` | 创建 Prompt 质量门禁批次，返回 `runId` |
+| GET | `/api/v1/crm/intent/prompt/quality-gate-runs/:runId` | 查询 Prompt 质量门禁进度与结果 |
+
+执行结果包含 `samples`、`completed`、`total`、`currentSample`、`summary`、`metrics` 和 `finishedAt`。前端以执行详情抽屉作为主反馈，Toast 仅用于补充通知。
+
 ##### 11.9.4 灰度发布与一键回滚
 
 - 灰度：按客户输入快照的 SHA-256 哈希稳定分桶，把命中的分析请求路由到 Prompt canary 版本；同一输入重试时保持稳定命中。分析历史记录实际使用的 `prompt_version`，观察窗口内对比解析成功率、失败类型分布与意向等级分布。

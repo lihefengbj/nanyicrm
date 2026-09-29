@@ -1,10 +1,12 @@
 package crm
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -27,12 +29,13 @@ const (
 )
 
 type PromptHandler struct {
-	db   *gorm.DB
-	base config.LLMConfig
+	db          *gorm.DB
+	base        config.LLMConfig
+	qualityRuns *qualityGateRunManager
 }
 
 func NewPromptHandler(db *gorm.DB, base config.LLMConfig) *PromptHandler {
-	return &PromptHandler{db: db, base: base}
+	return &PromptHandler{db: db, base: base, qualityRuns: newQualityGateRunManager(db)}
 }
 
 type PromptRequest struct {
@@ -156,26 +159,80 @@ func (h *PromptHandler) QualityGate(c *gin.Context) {
 		common.Fail(c, common.CodeRecordNotFound)
 		return
 	}
+	run, created, err := h.qualityRuns.start("prompt", entry.ID, entry.Name, entry.Version)
+	if err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	if created {
+		go h.executeQualityGate(run.RunID, entry.ID, middleware.CurrentUserID(c))
+	}
+	common.OK(c, qualityGateRunView(run))
+}
+
+func (h *PromptHandler) QualityGateRun(c *gin.Context) {
+	run, err := h.qualityRuns.get(strings.TrimSpace(c.Param("runId")))
+	if err != nil || run.ResourceType != "prompt" {
+		qualityGateRunNotFound(c, err)
+		return
+	}
+	h.qualityRuns.failStaleRun(run)
+	common.OK(c, qualityGateRunView(run))
+}
+
+func (h *PromptHandler) executeQualityGate(runID string, promptID, actorID uint64) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if err := h.qualityRuns.finish(runID, false, "质量门禁执行异常中断", "", fmt.Sprintf("panic: %v", recovered)); err != nil {
+				log.Printf("quality gate run %s panic recovery write failed: %v", runID, err)
+			}
+			log.Printf("quality gate run %s panicked: %v", runID, recovered)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), qualityGateExecutionTimeout)
+	defer cancel()
+
+	var entry model.SysAIPrompt
+	if err := h.db.First(&entry, promptID).Error; err != nil {
+		_ = h.qualityRuns.finish(runID, false, "Prompt版本不存在，未执行质量门禁", "", err.Error())
+		return
+	}
+	_ = h.qualityRuns.update(runID, func(run *model.SysAIQualityGateRun) {
+		now := time.Now()
+		run.Status = qualityGateRunRunning
+		run.StartedAt = &now
+	})
+
 	cfg := h.base
 	var active model.SysAIModelConfig
 	if err := h.db.Where("status = ?", modelConfigActive).Order("id DESC").First(&active).Error; err == nil {
 		var resolveErr error
 		cfg, resolveErr = resolveModelConfig(h.db, h.base, active)
 		if resolveErr != nil {
-			common.FailMsg(c, common.CodeParamInvalid, "当前激活模型凭证不可用，无法执行提示词质量门禁")
+			_ = h.qualityRuns.finish(runID, false, "当前激活模型凭证不可用，无法执行提示词质量门禁", "", resolveErr.Error())
 			return
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		common.Fail(c, common.CodeDBError)
+		_ = h.qualityRuns.finish(runID, false, "读取当前激活模型失败", "", err.Error())
 		return
 	}
-	passed, summary, metrics := runQualityGateWithPrompt(c.Request.Context(), ai.NewProvider(cfg), entry.Version, entry.Content)
+
+	passed, summary, metrics := runQualityGateWithPromptProgress(
+		ctx,
+		ai.NewProvider(cfg),
+		entry.Version,
+		entry.Content,
+		func(sampleName, status, errorMessage string) {
+			if err := h.qualityRuns.reportSample(runID, sampleName, status, errorMessage); err != nil {
+				log.Printf("quality gate run %s sample %s progress write failed: %v", runID, sampleName, err)
+			}
+		},
+	)
 	now := time.Now()
 	status := promptStatusDraft
 	if passed {
 		status = promptStatusApproved
 	}
-	actorID := middleware.CurrentUserID(c)
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&entry).Updates(map[string]interface{}{
 			"status": status, "quality_passed": passed, "quality_summary": summary,
@@ -191,13 +248,14 @@ func (h *PromptHandler) QualityGate(c *gin.Context) {
 			QualitySummary: summary, CreatedAt: now,
 		}).Error
 	}); err != nil {
-		common.Fail(c, common.CodeDBError)
+		if finishErr := h.qualityRuns.finish(runID, false, "质量门禁结果写入失败", metrics, err.Error()); finishErr != nil {
+			log.Printf("quality gate run %s failure write failed: %v", runID, finishErr)
+		}
 		return
 	}
-	entry.Status, entry.QualityPassed, entry.QualitySummary = status, passed, summary
-	entry.QualityMetrics, entry.QualityCheckedAt = metrics, &now
-	entry.ApprovalStatus, entry.ApprovedBy, entry.ApprovedAt, entry.ApprovalNote = aiApprovalPending, 0, nil, ""
-	common.OK(c, gin.H{"passed": passed, "prompt": entry})
+	if err := h.qualityRuns.finish(runID, passed, summary, metrics, ""); err != nil {
+		log.Printf("quality gate run %s finish write failed: %v", runID, err)
+	}
 }
 
 // @Summary  审批AI Prompt版本

@@ -66,7 +66,7 @@ test.describe('AI运营与分析流程', () => {
     await expect(page.getByText('动态配置仅承载研判规则，JSON 输出契约仍由代码固定校验。')).toBeVisible()
     await expect(page.getByText('回退Prompt版本', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '新增Prompt版本' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '质量门禁' }).last()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Prompt门禁' }).last()).toBeVisible()
   })
 
   test('执行客户AI分析并打开历史结果', async ({ page }) => {

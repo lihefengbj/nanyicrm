@@ -274,6 +274,29 @@ type SysAIPromptChange struct {
 
 func (SysAIPromptChange) TableName() string { return "sys_ai_prompt_change" }
 
+type SysAIQualityGateRun struct {
+	ID              uint64     `gorm:"primaryKey" json:"id"`
+	RunID           string     `gorm:"size:64;uniqueIndex;not null" json:"runId"`
+	ResourceType    string     `gorm:"size:32;index;not null" json:"resourceType"`
+	ResourceID      uint64     `gorm:"index;not null" json:"resourceId"`
+	ResourceName    string     `gorm:"size:128;not null" json:"resourceName"`
+	ResourceVersion string     `gorm:"size:64;not null" json:"resourceVersion"`
+	Status          string     `gorm:"size:16;index;not null" json:"status"`
+	Total           int        `json:"total"`
+	Completed       int        `json:"completed"`
+	CurrentSample   string     `gorm:"size:64" json:"currentSample"`
+	Samples         string     `gorm:"type:text" json:"samples"`
+	Summary         string     `gorm:"type:text" json:"summary"`
+	Metrics         string     `gorm:"type:text" json:"metrics"`
+	Error           string     `gorm:"type:text" json:"error"`
+	StartedAt       *time.Time `json:"startedAt"`
+	FinishedAt      *time.Time `json:"finishedAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+}
+
+func (SysAIQualityGateRun) TableName() string { return "sys_ai_quality_gate_run" }
+
 type CrmCustomerIntentAnalysisArchive struct {
 	ID                 uint64    `gorm:"primaryKey" json:"id"`
 	OriginalAnalysisID uint64    `gorm:"uniqueIndex;not null" json:"originalAnalysisId"`

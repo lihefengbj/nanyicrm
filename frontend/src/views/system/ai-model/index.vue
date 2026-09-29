@@ -60,7 +60,7 @@
       </el-table-column>
       <el-table-column label="门禁" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.qualityPassed ? 'success' : 'danger'">{{ row.qualityPassed ? '通过' : '未通过' }}</el-tag>
+          <el-tag :type="qualityTagType(row, 'model')">{{ qualityStatusText(row, 'model') }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="审批" width="90">
@@ -79,7 +79,8 @@
             type="warning"
             @click="openCredentialBinding(row)"
           >绑定凭证</el-button>
-          <el-button link type="primary" @click="gate(row)">质量门禁</el-button>
+          <el-button link type="primary" :loading="isQualityGateRunning('model', row.id)" @click="gate(row)">模型门禁</el-button>
+          <el-button v-if="row.qualityCheckedAt && qualityRuns[`model:${row.id}`]" link @click="openQualityResult('model', row)">查看结果</el-button>
           <el-button v-if="row.qualityPassed && row.approvalStatus !== 'approved'" link type="success" @click="approveModel(row)">审批</el-button>
           <el-button link @click="showChanges(row)">审计记录</el-button>
           <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="warning" @click="canary(row)">灰度</el-button>
@@ -113,11 +114,11 @@
             <el-tag :type="promptStatusType(row.status)">{{ promptStatusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="门禁" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.qualityPassed ? 'success' : 'danger'">{{ row.qualityPassed ? '通过' : '未通过' }}</el-tag>
-          </template>
-        </el-table-column>
+      <el-table-column label="门禁" width="90">
+        <template #default="{ row }">
+            <el-tag :type="qualityTagType(row, 'prompt')">{{ qualityStatusText(row, 'prompt') }}</el-tag>
+        </template>
+      </el-table-column>
         <el-table-column label="审批" width="90">
           <template #default="{ row }">
             <el-tag :type="approvalStatusType(row.approvalStatus)">{{ approvalStatusText(row.approvalStatus) }}</el-tag>
@@ -129,7 +130,8 @@
         <el-table-column label="操作" fixed="right" min-width="320">
           <template #default="{ row }">
             <el-button v-if="row.status === 'draft'" link type="primary" @click="openPromptEdit(row)">编辑</el-button>
-            <el-button link type="primary" @click="gatePrompt(row)">质量门禁</el-button>
+            <el-button link type="primary" :loading="isQualityGateRunning('prompt', row.id)" @click="gatePrompt(row)">Prompt门禁</el-button>
+            <el-button v-if="row.qualityCheckedAt && qualityRuns[`prompt:${row.id}`]" link @click="openQualityResult('prompt', row)">查看结果</el-button>
             <el-button v-if="row.qualityPassed && row.approvalStatus !== 'approved'" link type="success" @click="approvePrompt(row)">审批</el-button>
             <el-button link @click="showPromptChanges(row)">审计记录</el-button>
             <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="warning" @click="canaryPrompt(row)">灰度</el-button>
@@ -279,13 +281,90 @@
         <el-button type="primary" @click="bindCredential">保存绑定</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="qualityDrawerVisible" :title="qualityDrawerTitle" size="480px">
+      <template v-if="selectedQualityRun">
+        <div class="quality-run-header">
+          <div>
+            <strong>{{ selectedQualityRun.resourceName }}</strong>
+            <p>{{ selectedQualityRun.resourceVersion }}</p>
+          </div>
+          <el-tag :type="qualityRunTagType(selectedQualityRun.status)">
+            {{ qualityRunStatusText(selectedQualityRun.status) }}
+          </el-tag>
+        </div>
+
+        <el-progress
+          :percentage="qualityProgress(selectedQualityRun)"
+          :status="selectedQualityRun.status === 'failed' ? 'exception' : selectedQualityRun.status === 'passed' ? 'success' : undefined"
+          :stroke-width="10"
+        />
+        <div class="quality-run-meta">
+          <span>已完成 {{ selectedQualityRun.completed }}/{{ selectedQualityRun.total }}</span>
+          <span v-if="selectedQualityRun.currentSample">当前：{{ qualitySampleLabel(selectedQualityRun.currentSample) }}</span>
+          <span v-if="selectedQualityRun.startedAt">开始：{{ formatBeijingTime(selectedQualityRun.startedAt) }}</span>
+        </div>
+
+        <el-timeline class="quality-timeline">
+          <el-timeline-item
+            v-for="sample in selectedQualityRun.samples"
+            :key="sample.name"
+            :type="qualitySampleTimelineType(sample.status)"
+            :hollow="sample.status === 'queued'"
+          >
+            <div class="quality-sample-row">
+              <span>{{ sample.label }}</span>
+              <el-tag size="small" :type="qualitySampleTagType(sample.status)">
+                {{ qualitySampleStatusText(sample.status) }}
+              </el-tag>
+            </div>
+            <p v-if="sample.error" class="quality-error">{{ sample.error }}</p>
+          </el-timeline-item>
+        </el-timeline>
+
+        <el-alert
+          v-if="selectedQualityRun.summary || selectedQualityRun.error"
+          :title="selectedQualityRun.error || selectedQualityRun.summary"
+          :type="selectedQualityRun.status === 'failed' ? 'error' : selectedQualityRun.status === 'passed' ? 'success' : 'info'"
+          :closable="false"
+        />
+
+        <el-descriptions v-if="selectedQualityRun.status === 'passed' || selectedQualityRun.status === 'failed'" class="quality-metrics" :column="2" border>
+          <el-descriptions-item label="合法结果">
+            {{ metricValue(selectedQualityRun, 'validCount') }}/{{ metricValue(selectedQualityRun, 'sampleCount') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="等级匹配">
+            {{ metricValue(selectedQualityRun, 'levelMatchCount') }}/{{ metricValue(selectedQualityRun, 'sampleCount') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="字段完整率">
+            {{ metricPercent(selectedQualityRun, 'fieldCompletenessRate') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="总 Token">
+            {{ metricValue(selectedQualityRun, 'totalTokens') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="耗时">
+            {{ metricValue(selectedQualityRun, 'latencyMillis') }} ms
+          </el-descriptions-item>
+          <el-descriptions-item label="实际模型">
+            {{ metricValue(selectedQualityRun, 'actualModel') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="配置版本">
+            {{ metricValue(selectedQualityRun, 'configVersion') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="Prompt版本">
+            {{ metricValue(selectedQualityRun, 'promptVersion') }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </template>
+      <el-empty v-else description="暂无质量门禁执行记录" />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'SystemAIModel' })
 
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   activateAIModel,
@@ -293,6 +372,8 @@ import {
   bindAIModelCredential,
   createAIModelConfig,
   createAICredential,
+  getAIModelQualityGateRun,
+  getAIPromptQualityGateRun,
   listAIModelChanges,
   listAICredentials,
   listAIModelConfigs,
@@ -310,7 +391,7 @@ import {
   setAIPromptCanary,
   updateAIPrompt,
 } from '@/api/crm'
-import type { AICredential, AIModelChange, AIModelConfig, AIPrompt, AIPromptChange } from '@/types/api'
+import type { AICredential, AIModelChange, AIModelConfig, AIPrompt, AIPromptChange, AIQualityGateRun } from '@/types/api'
 import { formatBeijingTime } from '@/utils/datetime'
 
 const rows = ref<AIModelConfig[]>([])
@@ -331,6 +412,10 @@ const promptChangesVisible = ref(false)
 const promptEditing = ref(false)
 const selectedPromptName = ref('')
 const editingPromptId = ref(0)
+const qualityDrawerVisible = ref(false)
+const selectedQualityRun = ref<AIQualityGateRun | null>(null)
+const qualityRuns = ref<Record<string, AIQualityGateRun>>({})
+const qualityPollTimers = new Map<string, ReturnType<typeof setInterval>>()
 const form = reactive({
   name: '',
   provider: 'openai-compatible',
@@ -356,6 +441,14 @@ const promptForm = reactive({
 const activePromptRow = computed(() => promptRows.value.find((row) => row.status === 'active'))
 const promptCanaryRow = computed(() => promptRows.value.find((row) => row.status === 'canary'))
 const activeModelRow = computed(() => rows.value.find((row) => row.status === 'active'))
+const qualityDrawerTitle = computed(() => {
+  const run = selectedQualityRun.value
+  if (!run) return '质量门禁执行详情'
+  const subject = run.resourceType === 'prompt' ? 'Prompt质量门禁' : '模型质量门禁'
+  return `${subject}：${run.resourceName} ${run.resourceVersion}`
+})
+type QualityGateKind = 'model' | 'prompt'
+type QualityGateFetcher = (runId: string) => Promise<AIQualityGateRun>
 
 async function load() {
   rows.value = (await listAIModelConfigs({ pageNum: 1, pageSize: 100 })).records
@@ -365,6 +458,112 @@ async function loadCredentials() {
 }
 async function loadPrompts() {
   promptRows.value = (await listAIPrompts({ pageNum: 1, pageSize: 100 })).records
+}
+function qualityRunKey(kind: QualityGateKind, id: number) {
+  return `${kind}:${id}`
+}
+function isQualityGateRunning(kind: QualityGateKind, id: number) {
+  const status = qualityRuns.value[qualityRunKey(kind, id)]?.status
+  return status === 'queued' || status === 'running'
+}
+async function startQualityGate(
+  kind: QualityGateKind,
+  id: number,
+  start: () => Promise<AIQualityGateRun>,
+  fetchRun: QualityGateFetcher,
+) {
+  const key = qualityRunKey(kind, id)
+  stopQualityPolling(key)
+  const run = await start()
+  qualityRuns.value[key] = run
+  selectedQualityRun.value = run
+  qualityDrawerVisible.value = true
+  if (run.status === 'queued' || run.status === 'running') {
+    beginQualityPolling(kind, id, run.runId, fetchRun)
+  } else {
+    await finishQualityGate(kind, run)
+  }
+}
+function beginQualityPolling(kind: QualityGateKind, id: number, runId: string, fetchRun: QualityGateFetcher) {
+  const key = qualityRunKey(kind, id)
+  const refresh = async () => {
+    try {
+      const run = await fetchRun(runId)
+      if (qualityRuns.value[key]?.runId !== runId) return
+      qualityRuns.value[key] = run
+      if (selectedQualityRun.value?.runId === runId) {
+        selectedQualityRun.value = run
+      }
+      if (run.status === 'passed' || run.status === 'failed') {
+        stopQualityPolling(key)
+        await finishQualityGate(kind, run)
+      }
+    } catch {
+      // Keep polling; transient refresh failures should not hide the running batch.
+    }
+  }
+  void refresh()
+  qualityPollTimers.set(key, setInterval(() => void refresh(), 900))
+}
+function stopQualityPolling(key: string) {
+  const timer = qualityPollTimers.get(key)
+  if (timer) {
+    clearInterval(timer)
+    qualityPollTimers.delete(key)
+  }
+}
+async function finishQualityGate(kind: QualityGateKind, run: AIQualityGateRun) {
+  ElMessage[run.status === 'passed' ? 'success' : 'error'](run.summary || (run.status === 'passed' ? '质量门禁通过' : '质量门禁未通过'))
+  if (kind === 'prompt') {
+    await loadPrompts()
+  } else {
+    await load()
+  }
+}
+function openQualityResult(kind: QualityGateKind, row: AIModelConfig | AIPrompt) {
+  const run = qualityRuns.value[qualityRunKey(kind, row.id)]
+  if (!run) return
+  selectedQualityRun.value = run
+  qualityDrawerVisible.value = true
+}
+function qualityStatusText(row: AIModelConfig | AIPrompt, kind: QualityGateKind) {
+  const run = qualityRuns.value[qualityRunKey(kind, row.id)]
+  if (run?.status === 'queued' || run?.status === 'running') return '执行中'
+  if (!row.qualityCheckedAt) return '未执行'
+  return row.qualityPassed ? '通过' : '未通过'
+}
+function qualityTagType(row: AIModelConfig | AIPrompt, kind: QualityGateKind) {
+  const status = qualityStatusText(row, kind)
+  return status === '通过' ? 'success' : status === '未执行' ? 'info' : status === '执行中' ? 'warning' : 'danger'
+}
+function qualityRunStatusText(status: AIQualityGateRun['status']) {
+  return status === 'queued' ? '排队中' : status === 'running' ? '执行中' : status === 'passed' ? '已通过' : '未通过'
+}
+function qualityRunTagType(status: AIQualityGateRun['status']) {
+  return status === 'passed' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info'
+}
+function qualityProgress(run: AIQualityGateRun) {
+  return run.total ? Math.round((run.completed / run.total) * 100) : 0
+}
+function qualitySampleLabel(name: string) {
+  return selectedQualityRun.value?.samples.find((sample) => sample.name === name)?.label || name
+}
+function qualitySampleStatusText(status: AIQualityGateRun['samples'][number]['status']) {
+  return status === 'queued' ? '等待' : status === 'running' ? '执行中' : status === 'passed' ? '通过' : '失败'
+}
+function qualitySampleTagType(status: AIQualityGateRun['samples'][number]['status']) {
+  return status === 'passed' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info'
+}
+function qualitySampleTimelineType(status: AIQualityGateRun['samples'][number]['status']) {
+  return status === 'passed' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'primary' : undefined
+}
+function metricValue(run: AIQualityGateRun, key: string) {
+  const value = run.metrics[key]
+  return value === undefined || value === null || value === '' ? '-' : String(value)
+}
+function metricPercent(run: AIQualityGateRun, key: string) {
+  const value = run.metrics[key]
+  return typeof value === 'number' ? `${Math.round(value * 100)}%` : '-'
 }
 function openCreate() {
   dialogVisible.value = true
@@ -408,9 +607,7 @@ async function savePrompt() {
   await loadPrompts()
 }
 async function gatePrompt(row: AIPrompt) {
-  const result = await runAIPromptQualityGate(row.id)
-  ElMessage[result.passed ? 'success' : 'error'](result.prompt.qualitySummary || 'Prompt质量门禁完成')
-  await loadPrompts()
+  await startQualityGate('prompt', row.id, () => runAIPromptQualityGate(row.id), getAIPromptQualityGateRun)
 }
 async function approvePrompt(row: AIPrompt) {
   const value = await ElMessageBox.prompt('请输入审批意见（可选）', '审批Prompt版本', {
@@ -470,9 +667,7 @@ async function rotateCredential(row: AICredential) {
   await loadCredentials()
 }
 async function gate(row: AIModelConfig) {
-  const result = await runAIModelQualityGate(row.id)
-  ElMessage[result.passed ? 'success' : 'error'](result.config.qualitySummary || '质量门禁完成')
-  await load()
+  await startQualityGate('model', row.id, () => runAIModelQualityGate(row.id), getAIModelQualityGateRun)
 }
 async function approveModel(row: AIModelConfig) {
   const value = await ElMessageBox.prompt('请输入审批意见（可选）', '审批模型配置', {
@@ -536,6 +731,11 @@ function approvalStatusType(status: 'pending' | 'approved' | undefined) {
 onMounted(async () => {
   await Promise.all([load(), loadCredentials(), loadPrompts()])
 })
+onBeforeUnmount(() => {
+  for (const key of qualityPollTimers.keys()) {
+    stopQualityPolling(key)
+  }
+})
 </script>
 
 <style scoped>
@@ -552,4 +752,11 @@ p { margin: 0; color: #909399; font-size: 13px; }
 .prompt-card { margin-top: 20px; }
 .prompt-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .prompt-hint { margin-left: 10px; color: #909399; font-size: 13px; font-weight: normal; }
+.quality-run-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.quality-run-header p { margin-top: 6px; }
+.quality-run-meta { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 10px 0 18px; color: #909399; font-size: 12px; }
+.quality-timeline { margin-top: 22px; }
+.quality-sample-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.quality-error { margin-top: 6px; color: #f56c6c; font-size: 12px; }
+.quality-metrics { margin-top: 18px; }
 </style>

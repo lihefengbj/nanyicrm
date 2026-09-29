@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -270,13 +272,14 @@ type ModelConfigCredentialRequest struct {
 }
 
 type ModelConfigHandler struct {
-	db   *gorm.DB
-	base config.LLMConfig
-	prod bool
+	db          *gorm.DB
+	base        config.LLMConfig
+	prod        bool
+	qualityRuns *qualityGateRunManager
 }
 
 func NewModelConfigHandler(db *gorm.DB, base config.LLMConfig, prod bool) *ModelConfigHandler {
-	return &ModelConfigHandler{db: db, base: base, prod: prod}
+	return &ModelConfigHandler{db: db, base: base, prod: prod, qualityRuns: newQualityGateRunManager(db)}
 }
 
 func (h *ModelConfigHandler) List(c *gin.Context) {
@@ -411,7 +414,55 @@ func (h *ModelConfigHandler) QualityGate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	passed, summary, metrics := h.runQualityGate(c.Request.Context(), entry)
+	run, created, err := h.qualityRuns.start("model_config", entry.ID, entry.Name, entry.ConfigVersion)
+	if err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	if created {
+		go h.executeQualityGate(run.RunID, entry.ID, middleware.CurrentUserID(c))
+	}
+	common.OK(c, qualityGateRunView(run))
+}
+
+func (h *ModelConfigHandler) QualityGateRun(c *gin.Context) {
+	run, err := h.qualityRuns.get(strings.TrimSpace(c.Param("runId")))
+	if err != nil || run.ResourceType != "model_config" {
+		qualityGateRunNotFound(c, err)
+		return
+	}
+	h.qualityRuns.failStaleRun(run)
+	common.OK(c, qualityGateRunView(run))
+}
+
+func (h *ModelConfigHandler) executeQualityGate(runID string, configID, actorID uint64) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if err := h.qualityRuns.finish(runID, false, "质量门禁执行异常中断", "", fmt.Sprintf("panic: %v", recovered)); err != nil {
+				log.Printf("quality gate run %s panic recovery write failed: %v", runID, err)
+			}
+			log.Printf("quality gate run %s panicked: %v", runID, recovered)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), qualityGateExecutionTimeout)
+	defer cancel()
+
+	var entry model.SysAIModelConfig
+	if err := h.db.First(&entry, configID).Error; err != nil {
+		_ = h.qualityRuns.finish(runID, false, "候选模型配置不存在，未执行质量门禁", "", err.Error())
+		return
+	}
+	_ = h.qualityRuns.update(runID, func(run *model.SysAIQualityGateRun) {
+		now := time.Now()
+		run.Status = qualityGateRunRunning
+		run.StartedAt = &now
+	})
+
+	passed, summary, metrics := h.runQualityGateWithProgress(ctx, entry, func(sampleName, status, errorMessage string) {
+		if err := h.qualityRuns.reportSample(runID, sampleName, status, errorMessage); err != nil {
+			log.Printf("quality gate run %s sample %s progress write failed: %v", runID, sampleName, err)
+		}
+	})
 	now := time.Now()
 	status := modelConfigDraft
 	if passed {
@@ -427,17 +478,18 @@ func (h *ModelConfigHandler) QualityGate(c *gin.Context) {
 			return err
 		}
 		return tx.Create(&model.SysAIModelChange{
-			ConfigID: entry.ID, ToConfigID: entry.ID, ActorID: middleware.CurrentUserID(c),
+			ConfigID: entry.ID, ToConfigID: entry.ID, ActorID: actorID,
 			Action: "quality_gate", QualitySummary: summary, CreatedAt: now,
 		}).Error
 	}); err != nil {
-		common.Fail(c, common.CodeDBError)
+		if finishErr := h.qualityRuns.finish(runID, false, "质量门禁结果写入失败", metrics, err.Error()); finishErr != nil {
+			log.Printf("quality gate run %s failure write failed: %v", runID, finishErr)
+		}
 		return
 	}
-	entry.Status, entry.QualityPassed, entry.QualitySummary = status, passed, summary
-	entry.QualityMetrics, entry.QualityCheckedAt = metrics, &now
-	entry.ApprovalStatus, entry.ApprovedBy, entry.ApprovedAt, entry.ApprovalNote = aiApprovalPending, 0, nil, ""
-	common.OK(c, gin.H{"passed": passed, "config": entry})
+	if err := h.qualityRuns.finish(runID, passed, summary, metrics, ""); err != nil {
+		log.Printf("quality gate run %s finish write failed: %v", runID, err)
+	}
 }
 
 // @Summary  审批AI模型配置
@@ -671,6 +723,10 @@ func (h *ModelConfigHandler) find(c *gin.Context) (model.SysAIModelConfig, bool)
 }
 
 func (h *ModelConfigHandler) runQualityGate(ctx context.Context, entry model.SysAIModelConfig) (bool, string, string) {
+	return h.runQualityGateWithProgress(ctx, entry, nil)
+}
+
+func (h *ModelConfigHandler) runQualityGateWithProgress(ctx context.Context, entry model.SysAIModelConfig, report qualityGateProgressCallback) (bool, string, string) {
 	cfg, err := resolveModelConfig(h.db, h.base, entry)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{
@@ -681,7 +737,7 @@ func (h *ModelConfigHandler) runQualityGate(ctx context.Context, entry model.Sys
 	}
 	provider := ai.NewProvider(cfg)
 	promptVersion, promptContent := promptForVersion(h.db, entry.PromptVersion)
-	return runQualityGateWithPrompt(ctx, provider, promptVersion, promptContent)
+	return runQualityGateWithPromptProgress(ctx, provider, promptVersion, promptContent, report)
 }
 
 func resolveModelConfig(db *gorm.DB, base config.LLMConfig, value model.SysAIModelConfig) (config.LLMConfig, error) {

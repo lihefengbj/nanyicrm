@@ -620,6 +620,36 @@ export interface AIPromptChange {
   createdAt: string
 }
 
+export interface AIQualityGateSample {
+  name: string
+  label: string
+  expectedLevel: string
+  status: 'queued' | 'running' | 'passed' | 'failed'
+  error: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface AIQualityGateRun {
+  runId: string
+  resourceType: 'model_config' | 'prompt'
+  resourceId: number
+  resourceName: string
+  resourceVersion: string
+  status: 'queued' | 'running' | 'passed' | 'failed'
+  total: number
+  completed: number
+  currentSample: string
+  samples: AIQualityGateSample[]
+  summary: string
+  metrics: Record<string, unknown>
+  error: string
+  startedAt?: string
+  finishedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
 // ---- sales ----
 
 export interface Opportunity {

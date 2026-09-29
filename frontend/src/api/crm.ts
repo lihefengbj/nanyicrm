@@ -23,6 +23,7 @@ import type {
   AICredential,
   AIPrompt,
   AIPromptChange,
+  AIQualityGateRun,
   Opportunity,
   OpportunitySavePayload,
   PageQuery,
@@ -139,7 +140,10 @@ export function bindAIModelCredential(id: number, credentialId: number) {
 }
 
 export function runAIModelQualityGate(id: number) {
-  return post<{ passed: boolean; config: AIModelConfig }>(`/crm/intent/model-config/${id}/quality-gate`)
+  return post<AIQualityGateRun>(`/crm/intent/model-config/${id}/quality-gate`)
+}
+export function getAIModelQualityGateRun(runId: string) {
+  return get<AIQualityGateRun>(`/crm/intent/model-config/quality-gate-runs/${runId}`)
 }
 export function approveAIModel(id: number, reason?: string) {
   return post<AIModelConfig>(`/crm/intent/model-config/${id}/approve`, { reason })
@@ -174,7 +178,10 @@ export function updateAIPrompt(id: number, data: { name: string; content: string
 }
 
 export function runAIPromptQualityGate(id: number) {
-  return post<{ passed: boolean; prompt: AIPrompt }>(`/crm/intent/prompt/${id}/quality-gate`)
+  return post<AIQualityGateRun>(`/crm/intent/prompt/${id}/quality-gate`)
+}
+export function getAIPromptQualityGateRun(runId: string) {
+  return get<AIQualityGateRun>(`/crm/intent/prompt/quality-gate-runs/${runId}`)
 }
 export function approveAIPrompt(id: number, reason?: string) {
   return post<AIPrompt>(`/crm/intent/prompt/${id}/approve`, { reason })

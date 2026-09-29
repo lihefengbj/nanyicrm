@@ -33,6 +33,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SysAIModelChange{},
 		&model.SysAIPrompt{},
 		&model.SysAIPromptChange{},
+		&model.SysAIQualityGateRun{},
 		&model.SysApi{},
 		&model.CrmCustomer{},
 		&model.CrmContact{},

@@ -95,6 +95,17 @@ func runQualityGateWithProvider(ctx context.Context, provider ai.Provider) (bool
 }
 
 func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptVersion, promptContent string) (bool, string, string) {
+	return runQualityGateWithPromptProgress(ctx, provider, promptVersion, promptContent, nil)
+}
+
+type qualityGateProgressCallback func(sampleName, status, errorMessage string)
+
+func runQualityGateWithPromptProgress(
+	ctx context.Context,
+	provider ai.Provider,
+	promptVersion, promptContent string,
+	report qualityGateProgressCallback,
+) (bool, string, string) {
 	start := time.Now()
 	samples := intentQualitySamples()
 	metrics := map[string]interface{}{
@@ -108,6 +119,9 @@ func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptV
 	}
 
 	for _, sample := range samples {
+		if report != nil {
+			report(sample.Name, qualityGateSampleRunning, "")
+		}
 		var (
 			analysis *ai.IntentAnalysis
 			err      error
@@ -122,6 +136,9 @@ func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptV
 			metrics["errorSample"] = sample.Name
 			metrics["errorType"], metrics["retryable"] = ai.ErrorInfo(err)
 			metrics["latencyMillis"] = time.Since(start).Milliseconds()
+			if report != nil {
+				report(sample.Name, qualityGateSampleFailed, fmt.Sprintf("调用失败（%s）", metrics["errorType"]))
+			}
 			return false, fmt.Sprintf("固定样本 %s 调用失败，未通过质量门禁", sample.Name), marshalQualityMetrics(metrics)
 		}
 		if analysis == nil || analysis.Result == nil {
@@ -129,6 +146,9 @@ func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptV
 			metrics["errorSample"] = sample.Name
 			metrics["errorType"] = ai.ErrorTypeEmptyResponse
 			metrics["latencyMillis"] = time.Since(start).Milliseconds()
+			if report != nil {
+				report(sample.Name, qualityGateSampleFailed, "返回空结果")
+			}
 			return false, fmt.Sprintf("固定样本 %s 返回空结果，未通过质量门禁", sample.Name), marshalQualityMetrics(metrics)
 		}
 		if _, exists := metrics["actualModel"]; !exists {
@@ -145,6 +165,9 @@ func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptV
 			metrics["errorSample"] = sample.Name
 			metrics["errorType"] = ai.ErrorTypeResultValidation
 			metrics["latencyMillis"] = time.Since(start).Milliseconds()
+			if report != nil {
+				report(sample.Name, qualityGateSampleFailed, "结果字段校验失败")
+			}
 			return false, fmt.Sprintf("固定样本 %s 结果校验失败，未通过质量门禁", sample.Name), marshalQualityMetrics(metrics)
 		}
 
@@ -154,6 +177,9 @@ func runQualityGateWithPrompt(ctx context.Context, provider ai.Provider, promptV
 		}
 		if intentResultCompleteness(analysis.Result) >= intentQualityGateMinFieldCompleteness {
 			metrics["fieldCompleteCount"] = metrics["fieldCompleteCount"].(int) + 1
+		}
+		if report != nil {
+			report(sample.Name, qualityGateSamplePassed, "")
 		}
 	}
 
