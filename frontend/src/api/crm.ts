@@ -127,7 +127,7 @@ export function rotateAICredential(id: number, apiKey: string) {
   return put<AICredential>(`/crm/intent/model-credential/${id}/rotate`, { apiKey })
 }
 
-export function createAIModelConfig(data: Omit<AIModelConfig, 'id' | 'status' | 'canaryPercent' | 'qualityPassed' | 'qualitySummary' | 'qualityMetrics' | 'qualityCheckedAt' | 'activatedAt' | 'createdAt'>) {
+export function createAIModelConfig(data: Omit<AIModelConfig, 'id' | 'status' | 'approvalStatus' | 'approvedBy' | 'approvedAt' | 'approvalNote' | 'canaryPercent' | 'qualityPassed' | 'qualitySummary' | 'qualityMetrics' | 'qualityCheckedAt' | 'activatedAt' | 'createdAt'>) {
   return post<AIModelConfig>('/crm/intent/model-config', data)
 }
 
@@ -140,6 +140,9 @@ export function bindAIModelCredential(id: number, credentialId: number) {
 
 export function runAIModelQualityGate(id: number) {
   return post<{ passed: boolean; config: AIModelConfig }>(`/crm/intent/model-config/${id}/quality-gate`)
+}
+export function approveAIModel(id: number, reason?: string) {
+  return post<AIModelConfig>(`/crm/intent/model-config/${id}/approve`, { reason })
 }
 
 export function setAIModelCanary(id: number, canaryPercent: number, reason?: string) {
@@ -172,6 +175,9 @@ export function updateAIPrompt(id: number, data: { name: string; content: string
 
 export function runAIPromptQualityGate(id: number) {
   return post<{ passed: boolean; prompt: AIPrompt }>(`/crm/intent/prompt/${id}/quality-gate`)
+}
+export function approveAIPrompt(id: number, reason?: string) {
+  return post<AIPrompt>(`/crm/intent/prompt/${id}/approve`, { reason })
 }
 
 export function setAIPromptCanary(id: number, canaryPercent: number, reason?: string) {

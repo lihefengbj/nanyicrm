@@ -812,6 +812,52 @@
                 }
             }
         },
+        "/crm/intent/model-config/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "仅管理员可用；模型必须先通过固定样本质量门禁",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "审批AI模型配置",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/intent/prompt/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "仅管理员可用；Prompt必须先通过质量门禁",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "审批AI Prompt版本",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/crm/intent/workbench": {
             "get": {
                 "security": [

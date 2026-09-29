@@ -536,6 +536,10 @@ export interface AIModelConfig {
   maxTokens: number
   temperature: number
   status: 'draft' | 'approved' | 'active' | 'canary' | 'retired'
+  approvalStatus: 'pending' | 'approved'
+  approvedBy: number
+  approvedAt?: string
+  approvalNote: string
   canaryPercent: number
   qualityPassed: boolean
   qualitySummary: string
@@ -574,6 +578,10 @@ export interface AIPrompt {
   contentHash: string
   version: string
   status: 'draft' | 'approved' | 'active' | 'canary' | 'retired'
+  approvalStatus: 'pending' | 'approved'
+  approvedBy: number
+  approvedAt?: string
+  approvalNote: string
   canaryPercent: number
   qualityPassed: boolean
   qualitySummary: string

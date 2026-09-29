@@ -63,6 +63,11 @@
           <el-tag :type="row.qualityPassed ? 'success' : 'danger'">{{ row.qualityPassed ? '通过' : '未通过' }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="审批" width="90">
+        <template #default="{ row }">
+          <el-tag :type="approvalStatusType(row.approvalStatus)">{{ approvalStatusText(row.approvalStatus) }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="canaryPercent" label="灰度" width="80">
         <template #default="{ row }">{{ row.canaryPercent ? `${row.canaryPercent}%` : '-' }}</template>
       </el-table-column>
@@ -75,9 +80,10 @@
             @click="openCredentialBinding(row)"
           >绑定凭证</el-button>
           <el-button link type="primary" @click="gate(row)">质量门禁</el-button>
+          <el-button v-if="row.qualityPassed && row.approvalStatus !== 'approved'" link type="success" @click="approveModel(row)">审批</el-button>
           <el-button link @click="showChanges(row)">审计记录</el-button>
-          <el-button v-if="row.qualityPassed && row.status !== 'active'" link type="warning" @click="canary(row)">灰度</el-button>
-          <el-button v-if="row.qualityPassed && row.status !== 'active'" link type="success" @click="activate(row)">激活</el-button>
+          <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="warning" @click="canary(row)">灰度</el-button>
+          <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="success" @click="activate(row)">激活</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -112,6 +118,11 @@
             <el-tag :type="row.qualityPassed ? 'success' : 'danger'">{{ row.qualityPassed ? '通过' : '未通过' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="审批" width="90">
+          <template #default="{ row }">
+            <el-tag :type="approvalStatusType(row.approvalStatus)">{{ approvalStatusText(row.approvalStatus) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="灰度" width="80">
           <template #default="{ row }">{{ row.canaryPercent ? `${row.canaryPercent}%` : '-' }}</template>
         </el-table-column>
@@ -119,9 +130,10 @@
           <template #default="{ row }">
             <el-button v-if="row.status === 'draft'" link type="primary" @click="openPromptEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="gatePrompt(row)">质量门禁</el-button>
+            <el-button v-if="row.qualityPassed && row.approvalStatus !== 'approved'" link type="success" @click="approvePrompt(row)">审批</el-button>
             <el-button link @click="showPromptChanges(row)">审计记录</el-button>
-            <el-button v-if="row.qualityPassed && row.status !== 'active'" link type="warning" @click="canaryPrompt(row)">灰度</el-button>
-            <el-button v-if="row.qualityPassed && row.status !== 'active'" link type="success" @click="activatePrompt(row)">激活</el-button>
+            <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="warning" @click="canaryPrompt(row)">灰度</el-button>
+            <el-button v-if="row.qualityPassed && row.approvalStatus === 'approved' && row.status !== 'active'" link type="success" @click="activatePrompt(row)">激活</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -277,6 +289,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   activateAIModel,
+  approveAIModel,
   bindAIModelCredential,
   createAIModelConfig,
   createAICredential,
@@ -288,6 +301,7 @@ import {
   setAIModelCanary,
   rotateAICredential,
   activateAIPrompt,
+  approveAIPrompt,
   createAIPrompt,
   listAIPromptChanges,
   listAIPrompts,
@@ -398,6 +412,15 @@ async function gatePrompt(row: AIPrompt) {
   ElMessage[result.passed ? 'success' : 'error'](result.prompt.qualitySummary || 'Prompt质量门禁完成')
   await loadPrompts()
 }
+async function approvePrompt(row: AIPrompt) {
+  const value = await ElMessageBox.prompt('请输入审批意见（可选）', '审批Prompt版本', {
+    inputValue: row.approvalNote || '',
+    inputType: 'textarea',
+  })
+  await approveAIPrompt(row.id, value.value)
+  ElMessage.success('Prompt版本已审批')
+  await loadPrompts()
+}
 async function showPromptChanges(row: AIPrompt) {
   selectedPromptName.value = row.name
   promptChanges.value = await listAIPromptChanges(row.id)
@@ -451,6 +474,15 @@ async function gate(row: AIModelConfig) {
   ElMessage[result.passed ? 'success' : 'error'](result.config.qualitySummary || '质量门禁完成')
   await load()
 }
+async function approveModel(row: AIModelConfig) {
+  const value = await ElMessageBox.prompt('请输入审批意见（可选）', '审批模型配置', {
+    inputValue: row.approvalNote || '',
+    inputType: 'textarea',
+  })
+  await approveAIModel(row.id, value.value)
+  ElMessage.success('模型配置已审批')
+  await load()
+}
 async function showChanges(row: AIModelConfig) {
   selectedConfigName.value = row.name
   changes.value = await listAIModelChanges(row.id)
@@ -494,6 +526,12 @@ function promptStatusText(status: AIPrompt['status']) {
 }
 function promptStatusType(status: AIPrompt['status']) {
   return status === 'active' ? 'success' : status === 'canary' ? 'warning' : status === 'approved' ? 'primary' : status === 'draft' ? 'info' : ''
+}
+function approvalStatusText(status: 'pending' | 'approved' | undefined) {
+  return status === 'approved' ? '已审批' : '待审批'
+}
+function approvalStatusType(status: 'pending' | 'approved' | undefined) {
+  return status === 'approved' ? 'success' : 'warning'
 }
 onMounted(async () => {
   await Promise.all([load(), loadCredentials(), loadPrompts()])

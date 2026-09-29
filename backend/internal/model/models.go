@@ -200,7 +200,11 @@ type SysAIModelConfig struct {
 	ThinkingMode     string     `gorm:"size:16" json:"thinkingMode"`
 	MaxTokens        int        `json:"maxTokens"`
 	Temperature      float32    `json:"temperature"`
-	Status           string     `gorm:"size:16;index;not null" json:"status"` // draft, approved, active, canary, retired
+	Status           string     `gorm:"size:16;index;not null" json:"status"`                         // draft, approved, active, canary, retired
+	ApprovalStatus   string     `gorm:"size:16;index;not null;default:pending" json:"approvalStatus"` // pending, approved
+	ApprovedBy       uint64     `gorm:"index" json:"approvedBy"`
+	ApprovedAt       *time.Time `json:"approvedAt"`
+	ApprovalNote     string     `gorm:"size:512" json:"approvalNote"`
 	CanaryPercent    int        `json:"canaryPercent"`
 	QualityPassed    bool       `json:"qualityPassed"`
 	QualitySummary   string     `gorm:"type:text" json:"qualitySummary"`
@@ -234,7 +238,11 @@ type SysAIPrompt struct {
 	Content          string     `gorm:"type:text;not null" json:"content"`
 	ContentHash      string     `gorm:"size:64;uniqueIndex;not null" json:"contentHash"`
 	Version          string     `gorm:"size:32;uniqueIndex;not null" json:"version"`
-	Status           string     `gorm:"size:16;index;not null" json:"status"` // draft, approved, active, canary, retired
+	Status           string     `gorm:"size:16;index;not null" json:"status"`                         // draft, approved, active, canary, retired
+	ApprovalStatus   string     `gorm:"size:16;index;not null;default:pending" json:"approvalStatus"` // pending, approved
+	ApprovedBy       uint64     `gorm:"index" json:"approvedBy"`
+	ApprovedAt       *time.Time `json:"approvedAt"`
+	ApprovalNote     string     `gorm:"size:512" json:"approvalNote"`
 	CanaryPercent    int        `json:"canaryPercent"`
 	QualityPassed    bool       `json:"qualityPassed"`
 	QualitySummary   string     `gorm:"type:text" json:"qualitySummary"`

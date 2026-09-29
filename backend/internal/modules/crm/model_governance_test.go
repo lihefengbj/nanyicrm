@@ -137,3 +137,23 @@ func TestApplyCallMetadataRecordsSelectedPromptOnProviderFailure(t *testing.T) {
 		t.Fatalf("selected call metadata was not recorded: %+v", history)
 	}
 }
+
+func TestGovernanceApprovalReady(t *testing.T) {
+	tests := []struct {
+		name          string
+		qualityPassed bool
+		approval      string
+		want          bool
+	}{
+		{name: "both gates passed", qualityPassed: true, approval: aiApprovalApproved, want: true},
+		{name: "quality gate pending", qualityPassed: false, approval: aiApprovalApproved, want: false},
+		{name: "human approval pending", qualityPassed: true, approval: aiApprovalPending, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := governanceApprovalReady(tt.qualityPassed, tt.approval); got != tt.want {
+				t.Fatalf("governanceApprovalReady() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -531,6 +531,34 @@ paths:
       summary: AI意向运营指标
       tags:
       - CRM-客户意向
+  /crm/intent/model-config/{id}/approve:
+    post:
+      description: 仅管理员可用；模型必须先通过固定样本质量门禁
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 审批AI模型配置
+      tags:
+      - CRM-客户意向
+  /crm/intent/prompt/{id}/approve:
+    post:
+      description: 仅管理员可用；Prompt必须先通过质量门禁
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 审批AI Prompt版本
+      tags:
+      - CRM-客户意向
   /crm/intent/workbench:
     get:
       description: 需要权限：crm:intent:workbench

@@ -26,7 +26,13 @@ const (
 	modelConfigActive   = "active"
 	modelConfigCanary   = "canary"
 	modelConfigRetired  = "retired"
+	aiApprovalPending   = "pending"
+	aiApprovalApproved  = "approved"
 )
+
+func governanceApprovalReady(qualityPassed bool, approvalStatus string) bool {
+	return qualityPassed && approvalStatus == aiApprovalApproved
+}
 
 // GovernedProvider resolves the active model configuration for every call.
 // A canary is selected deterministically from the input hash, so retries for
@@ -194,6 +200,13 @@ func EnsureDefaultModelConfig(db *gorm.DB, cfg config.LLMConfig) error {
 	}
 	var active model.SysAIModelConfig
 	if err := db.Where("status = ?", modelConfigActive).First(&active).Error; err == nil {
+		if active.ApprovalStatus != aiApprovalApproved {
+			now := time.Now()
+			return db.Model(&active).Updates(map[string]interface{}{
+				"approval_status": aiApprovalApproved,
+				"approved_at":     now,
+			}).Error
+		}
 		return nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
@@ -210,6 +223,8 @@ func EnsureDefaultModelConfig(db *gorm.DB, cfg config.LLMConfig) error {
 		MaxTokens:      cfg.MaxTokens,
 		Temperature:    cfg.Temperature,
 		Status:         modelConfigActive,
+		ApprovalStatus: aiApprovalApproved,
+		ApprovedAt:     ptrTime(time.Now()),
 		QualityPassed:  true,
 		QualitySummary: "由部署配置初始化；后续切换必须通过固定样本质量门禁",
 		ActivatedAt:    ptrTime(time.Now()),
@@ -218,9 +233,11 @@ func EnsureDefaultModelConfig(db *gorm.DB, cfg config.LLMConfig) error {
 		var existing model.SysAIModelConfig
 		if db.Where("config_version = ?", cfg.ConfigVersion).First(&existing).Error == nil {
 			return db.Model(&existing).Updates(map[string]interface{}{
-				"status":         modelConfigActive,
-				"quality_passed": true,
-				"activated_at":   time.Now(),
+				"status":          modelConfigActive,
+				"approval_status": aiApprovalApproved,
+				"quality_passed":  true,
+				"activated_at":    time.Now(),
+				"approved_at":     time.Now(),
 			}).Error
 		}
 		return err
@@ -309,6 +326,7 @@ func (h *ModelConfigHandler) Create(c *gin.Context) {
 		ConfigVersion: req.ConfigVersion, PromptVersion: req.PromptVersion,
 		ResponseFormat: req.ResponseFormat, ThinkingMode: req.ThinkingMode,
 		MaxTokens: req.MaxTokens, Temperature: req.Temperature, Status: modelConfigDraft,
+		ApprovalStatus: aiApprovalPending,
 	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&entry).Error; err != nil {
@@ -365,6 +383,10 @@ func (h *ModelConfigHandler) BindCredential(c *gin.Context) {
 			"quality_summary":    summary,
 			"quality_metrics":    "",
 			"quality_checked_at": nil,
+			"approval_status":    aiApprovalPending,
+			"approved_by":        0,
+			"approved_at":        nil,
+			"approval_note":      "",
 		}).Error; err != nil {
 			return err
 		}
@@ -399,6 +421,8 @@ func (h *ModelConfigHandler) QualityGate(c *gin.Context) {
 		if err := tx.Model(&entry).Updates(map[string]interface{}{
 			"status": status, "quality_passed": passed, "quality_summary": summary,
 			"quality_metrics": metrics, "quality_checked_at": now,
+			"approval_status": aiApprovalPending, "approved_by": 0,
+			"approved_at": nil, "approval_note": "",
 		}).Error; err != nil {
 			return err
 		}
@@ -412,7 +436,52 @@ func (h *ModelConfigHandler) QualityGate(c *gin.Context) {
 	}
 	entry.Status, entry.QualityPassed, entry.QualitySummary = status, passed, summary
 	entry.QualityMetrics, entry.QualityCheckedAt = metrics, &now
+	entry.ApprovalStatus, entry.ApprovedBy, entry.ApprovedAt, entry.ApprovalNote = aiApprovalPending, 0, nil, ""
 	common.OK(c, gin.H{"passed": passed, "config": entry})
+}
+
+// @Summary  审批AI模型配置
+// @Tags     CRM-客户意向
+// @Description 仅管理员可用；模型必须先通过固定样本质量门禁
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/intent/model-config/{id}/approve [post]
+//
+// Approve records the human release decision separately from the automated
+// quality gate. Activation and canary publication require this approval.
+func (h *ModelConfigHandler) Approve(c *gin.Context) {
+	entry, ok := h.find(c)
+	if !ok {
+		return
+	}
+	if !entry.QualityPassed {
+		common.FailMsg(c, common.CodeParamInvalid, "模型必须先通过固定样本质量门禁")
+		return
+	}
+	var req ModelConfigActionRequest
+	_ = c.ShouldBindJSON(&req)
+	now := time.Now()
+	actorID := middleware.CurrentUserID(c)
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&entry).Updates(map[string]interface{}{
+			"approval_status": aiApprovalApproved,
+			"approved_by":     actorID,
+			"approved_at":     now,
+			"approval_note":   req.Reason,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.SysAIModelChange{
+			ConfigID: entry.ID, ToConfigID: entry.ID, ActorID: actorID,
+			Action: "approve", Reason: req.Reason, QualitySummary: entry.QualitySummary,
+			CreatedAt: now,
+		}).Error
+	}); err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	entry.ApprovalStatus, entry.ApprovedBy, entry.ApprovedAt, entry.ApprovalNote = aiApprovalApproved, actorID, &now, req.Reason
+	common.OK(c, entry)
 }
 
 func (h *ModelConfigHandler) Canary(c *gin.Context) {
@@ -424,6 +493,10 @@ func (h *ModelConfigHandler) Canary(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	if !entry.QualityPassed {
 		common.FailMsg(c, common.CodeParamInvalid, "模型必须先通过固定样本质量门禁")
+		return
+	}
+	if !governanceApprovalReady(entry.QualityPassed, entry.ApprovalStatus) {
+		common.FailMsg(c, common.CodeParamInvalid, "模型必须先完成人工审批")
 		return
 	}
 	var active model.SysAIModelConfig
@@ -475,6 +548,10 @@ func (h *ModelConfigHandler) Activate(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	if !entry.QualityPassed {
 		common.FailMsg(c, common.CodeParamInvalid, "模型必须先通过固定样本质量门禁")
+		return
+	}
+	if !governanceApprovalReady(entry.QualityPassed, entry.ApprovalStatus) {
+		common.FailMsg(c, common.CodeParamInvalid, "模型必须先完成人工审批")
 		return
 	}
 	now := time.Now()
@@ -532,6 +609,10 @@ func (h *ModelConfigHandler) Rollback(c *gin.Context) {
 	}
 	if !target.QualityPassed {
 		common.FailMsg(c, common.CodeParamInvalid, "回滚目标未通过质量门禁")
+		return
+	}
+	if !governanceApprovalReady(target.QualityPassed, target.ApprovalStatus) {
+		common.FailMsg(c, common.CodeParamInvalid, "回滚目标必须先完成人工审批")
 		return
 	}
 	var previous model.SysAIModelConfig
