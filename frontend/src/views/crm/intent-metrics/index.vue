@@ -138,6 +138,45 @@
       <el-empty v-if="!metrics.byProvider.length" description="暂无调用数据" />
     </el-card>
 
+    <el-card v-if="calibration" class="panel">
+      <template #header>
+        <div class="card-header">
+          <span>评分校准与人工反馈一致性</span>
+          <span class="scope-note">仅使用明确保存的分析结果和人工反馈，不代表成交转化率</span>
+        </div>
+      </template>
+      <el-table :data="calibration.groups" border stripe>
+        <el-table-column label="配置版本" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ displayValue(row.modelConfigVersion) }}</template>
+        </el-table-column>
+        <el-table-column label="Prompt" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ displayValue(row.promptVersion) }}</template>
+        </el-table-column>
+        <el-table-column label="样本数" prop="sampleCount" width="90" />
+        <el-table-column label="平均分" width="90">
+          <template #default="{ row }">{{ row.scoredCount ? row.averageScore.toFixed(1) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="中位数" width="90">
+          <template #default="{ row }">{{ row.scoredCount ? row.medianScore.toFixed(1) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="P95分数" width="90">
+          <template #default="{ row }">{{ row.scoredCount ? row.p95Score.toFixed(1) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="等级分布" min-width="220">
+          <template #default="{ row }">
+            高 {{ row.levelDistribution.high || 0 }} · 中 {{ row.levelDistribution.medium || 0 }} ·
+            低 {{ row.levelDistribution.low || 0 }} · 未知 {{ row.levelDistribution.unknown || 0 }}
+          </template>
+        </el-table-column>
+        <el-table-column label="反馈一致率" width="120">
+          <template #default="{ row }">
+            {{ row.feedbackCount ? formatPercent(row.consistencyRate) : '暂无反馈' }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!calibration.groups.length" description="暂无可校准样本" />
+    </el-card>
+
     <el-card v-if="metrics" class="panel">
       <template #header>
         <div class="card-header">
@@ -202,14 +241,15 @@ defineOptions({ name: 'CrmIntentMetrics' })
 
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getIntentMetrics } from '@/api/crm'
+import { getIntentCalibration, getIntentMetrics } from '@/api/crm'
 import { listAllTenants } from '@/api/system'
-import type { IntentMetricGroup, IntentMetrics, Tenant } from '@/types/api'
+import type { IntentCalibration, IntentMetricGroup, IntentMetrics, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
 const loading = ref(false)
 const metrics = ref<IntentMetrics | null>(null)
+const calibration = ref<IntentCalibration | null>(null)
 const tenantOptions = ref<Tenant[]>([])
 
 function dateText(date: Date) {
@@ -347,11 +387,17 @@ async function load() {
   }
   loading.value = true
   try {
-    metrics.value = await getIntentMetrics({
+    const params = {
       from: query.range[0],
       to: query.range[1],
       tenantId: store.profile?.isPrivileged ? query.tenantId : undefined,
-    })
+    }
+    const [metricsResult, calibrationResult] = await Promise.all([
+      getIntentMetrics(params),
+      getIntentCalibration(params),
+    ])
+    metrics.value = metricsResult
+    calibration.value = calibrationResult
   } finally {
     loading.value = false
   }

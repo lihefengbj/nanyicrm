@@ -499,6 +499,29 @@ export interface IntentMetrics {
   acceptanceRate: number
 }
 
+export interface IntentCalibrationGroup {
+  provider: string
+  model: string
+  actualModel: string
+  modelConfigVersion: string
+  promptVersion: string
+  sampleCount: number
+  scoredCount: number
+  averageScore: number
+  medianScore: number
+  p95Score: number
+  levelDistribution: Record<string, number>
+  feedbackCount: number
+  consistentFeedbackCount: number
+  consistencyRate: number
+}
+
+export interface IntentCalibration {
+  from: string
+  to: string
+  groups: IntentCalibrationGroup[]
+}
+
 export interface AIModelConfig {
   id: number
   name: string

@@ -30,8 +30,6 @@ definitions:
     properties:
       refreshToken:
         type: string
-    required:
-    - refreshToken
     type: object
 host: localhost:8080
 info:
@@ -423,6 +421,20 @@ paths:
       summary: 取消尚未开始的批量AI意向任务
       tags:
       - CRM-客户意向
+  /crm/customer/intent/tasks/{id}/retry:
+    post:
+      description: 需要权限：crm:intent:batch；不传 itemIds 时重试该任务全部失败项
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 重试批量AI意向任务中的失败项
+      tags:
+      - CRM-客户意向
   /crm/follow:
     get:
       description: 需要权限：crm:follow:list
@@ -477,6 +489,20 @@ paths:
       summary: 编辑跟进记录（仅本人）
       tags:
       - CRM-跟进
+  /crm/intent/calibration:
+    get:
+      description: 需要权限：crm:intent:metrics；按 Provider、模型配置版本和 Prompt 版本分组
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: AI意向评分校准指标
+      tags:
+      - CRM-客户意向
   /crm/intent/config/test:
     post:
       description: 仅管理员可用；需要权限：crm:intent:config

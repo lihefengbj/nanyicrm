@@ -435,6 +435,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/crm/customer/intent/tasks/{id}/retry": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:batch；不传 itemIds 时重试该任务全部失败项",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "重试批量AI意向任务中的失败项",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/crm/customer/{id}": {
             "put": {
                 "security": [
@@ -715,6 +738,29 @@ const docTemplate = `{
                     "CRM-跟进"
                 ],
                 "summary": "删除跟进记录（仅本人）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/crm/intent/calibration": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "需要权限：crm:intent:metrics；按 Provider、模型配置版本和 Prompt 版本分组",
+                "tags": [
+                    "CRM-客户意向"
+                ],
+                "summary": "AI意向评分校准指标",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1851,9 +1897,6 @@ const docTemplate = `{
         },
         "system.RefreshRequest": {
             "type": "object",
-            "required": [
-                "refreshToken"
-            ],
             "properties": {
                 "refreshToken": {
                     "type": "string"

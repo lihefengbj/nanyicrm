@@ -16,6 +16,7 @@ import type {
   CustomerIntentHistory,
   CustomerIntentTask,
   IntentMetrics,
+  IntentCalibration,
   IntentWorkbench,
   AIModelChange,
   AIModelConfig,
@@ -97,11 +98,17 @@ export function getCustomerIntentTask(id: number) {
 export function cancelCustomerIntentTask(id: number) {
   return post<CustomerIntentTask>(`/crm/customer/intent/tasks/${id}/cancel`)
 }
+export function retryCustomerIntentTask(id: number, itemIds?: number[]) {
+  return post<CustomerIntentTask>(`/crm/customer/intent/tasks/${id}/retry`, itemIds?.length ? { itemIds } : {})
+}
 export function getIntentWorkbench(tenantId?: number) {
   return get<IntentWorkbench>('/crm/intent/workbench', tenantId ? { tenantId } : {})
 }
 export function getIntentMetrics(params?: { from?: string; to?: string; tenantId?: number }) {
   return get<IntentMetrics>('/crm/intent/metrics', params)
+}
+export function getIntentCalibration(params?: { from?: string; to?: string; tenantId?: number }) {
+  return get<IntentCalibration>('/crm/intent/calibration', params)
 }
 
 export function listAIModelConfigs(query?: PageQuery) {

@@ -2,6 +2,7 @@ package crm
 
 import (
 	"errors"
+	"io"
 	"strconv"
 	"time"
 
@@ -24,6 +25,10 @@ type IntentBatchRequest struct {
 	MaxScore       *int     `json:"maxScore"`
 	FollowUpStatus string   `json:"followUpStatus"`
 	Limit          int      `json:"limit"`
+}
+
+type IntentTaskRetryRequest struct {
+	ItemIDs []uint64 `json:"itemIds"`
 }
 
 type IntentTaskResponse struct {
@@ -193,6 +198,98 @@ func (h *IntentHandler) CancelTask(c *gin.Context) {
 	}
 	h.db.First(&task, task.ID)
 	common.OK(c, intentTaskResponse(task, nil))
+}
+
+// @Summary  重试批量AI意向任务中的失败项
+// @Tags     CRM-客户意向
+// @Description 需要权限：crm:intent:batch；不传 itemIds 时重试该任务全部失败项
+// @Success  200  {object}  map[string]interface{}
+// @Security BearerAuth
+// @Router   /crm/customer/intent/tasks/{id}/retry [post]
+func (h *IntentHandler) RetryTask(c *gin.Context) {
+	if !h.enabled || h.provider == nil || h.taskEnqueuer == nil {
+		common.Fail(c, common.CodeAIUnavailable)
+		return
+	}
+	task, ok := h.findTask(c)
+	if !ok {
+		return
+	}
+	var req IntentTaskRetryRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		common.Fail(c, common.CodeParamInvalid)
+		return
+	}
+
+	query := h.db.Where("task_id = ? AND tenant_id = ? AND status = ?",
+		task.ID, task.TenantID, intentTaskItemStatusFailed)
+	if len(req.ItemIDs) > 0 {
+		query = query.Where("id IN ?", req.ItemIDs)
+	}
+	var failed []model.CrmCustomerIntentTaskItem
+	if err := query.Order("id ASC").Limit(50).Find(&failed).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	if len(failed) == 0 {
+		common.FailMsg(c, common.CodeParamInvalid, "没有可重试的失败项")
+		return
+	}
+	if !h.checkQuota(c, task.TenantID, int64(len(failed))) {
+		return
+	}
+
+	now := time.Now()
+	retryTask := model.CrmCustomerIntentTask{
+		TenantID:     task.TenantID,
+		CreatedBy:    middleware.CurrentUserID(c),
+		Status:       intentTaskStatusPending,
+		TotalCount:   len(failed),
+		PendingCount: len(failed),
+		MaxAttempts:  3,
+		StartedAt:    &now,
+	}
+	items := make([]model.CrmCustomerIntentTaskItem, 0, len(failed))
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&retryTask).Error; err != nil {
+			return err
+		}
+		for _, source := range failed {
+			item := model.CrmCustomerIntentTaskItem{
+				TaskID:        retryTask.ID,
+				TenantID:      task.TenantID,
+				CustomerID:    source.CustomerID,
+				TriggerUserID: middleware.CurrentUserID(c),
+				Status:        intentTaskItemStatusPending,
+			}
+			if err := tx.Create(&item).Error; err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
+		return nil
+	}); err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+
+	for _, item := range items {
+		if err := h.taskEnqueuer(c.Request.Context(), IntentTask{
+			TenantID:      task.TenantID,
+			CustomerID:    item.CustomerID,
+			TriggerUserID: item.TriggerUserID,
+			TaskID:        retryTask.ID,
+			ItemID:        item.ID,
+		}); err != nil {
+			_ = h.markTaskItemFailed(item.ID, err.Error())
+		}
+	}
+	var stored model.CrmCustomerIntentTask
+	if err := h.db.First(&stored, retryTask.ID).Error; err != nil {
+		common.Fail(c, common.CodeDBError)
+		return
+	}
+	common.OK(c, intentTaskResponse(&stored, nil))
 }
 
 func (h *IntentHandler) findTask(c *gin.Context) (*model.CrmCustomerIntentTask, bool) {

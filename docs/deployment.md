@@ -120,9 +120,21 @@ HAVING COUNT(*) > 1;
 
 - 后台「系统管理 → AI模型治理」创建候选配置。
 - 候选配置必须先通过固定样本质量门禁，之后才能灰度或激活；所有操作写入模型变更审计表。
+- 客户列表中的批量 AI 分析会打开任务面板，展示排队、处理中、成功、失败和取消数量；任务完成后可从失败明细创建新的有限重试任务，原任务记录保持不变。
+- AI 意向指标页面中的「评分校准与人工反馈一致性」按模型配置版本和 Prompt 版本统计样本数、分数分布、等级分布及人工反馈一致率。该指标用于观察，不会自动修改客户意向分数。
+- 校准接口为 `GET /api/v1/crm/intent/calibration`，沿用 `crm:intent:metrics` 权限和租户隔离。
 - `/metrics` 提供 Prometheus 兼容指标，生产环境使用 `X-Metrics-Token` 保护。
 - 异常登录达到配置阈值后，通过 Redis 去重并向 `ALERTS_WEBHOOK_URL` 发送 JSON 告警。
 - AI 原始分析在 `llm.retention_days` 后归档至归档表并从热表清理；归档再保留 `llm.archive_days`。
+
+本次 AI 意向升级新增迁移 `000016_intent_analysis_dedup_key`，为分析历史增加由输入哈希、Prompt 版本和模型配置版本共同派生的幂等键。升级前后都应确认：
+
+```sql
+SELECT version, dirty
+FROM schema_migrations;
+
+SHOW COLUMNS FROM crm_customer_intent_analysis LIKE 'dedup_key';
+```
 
 ## 六、CI
 

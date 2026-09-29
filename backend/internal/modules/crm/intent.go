@@ -677,6 +677,11 @@ func (h *IntentHandler) analyzeCustomer(ctx context.Context, customer *model.Crm
 	if resolver, ok := h.provider.(ai.CallMetadataResolver); ok {
 		applyCallMetadata(&history, resolver.ResolveCallMetadata(input))
 	}
+	history.DedupKey = intentAnalysisDedupKey(
+		history.InputHash,
+		history.PromptVersion,
+		history.ModelConfigVersion,
+	)
 	if err := h.createIntentAnalysisHistory(ctx, &history); err != nil {
 		return nil, fmt.Errorf("create intent analysis history: %w", err)
 	}
@@ -849,8 +854,8 @@ func (h *IntentHandler) pingDatabase(ctx context.Context) error {
 func (h *IntentHandler) findIntentAnalysisByInput(ctx context.Context, history *model.CrmCustomerIntentAnalysis) (*model.CrmCustomerIntentAnalysis, error) {
 	var existing model.CrmCustomerIntentAnalysis
 	err := h.db.WithContext(ctx).
-		Where("tenant_id = ? AND customer_id = ? AND input_hash = ? AND status = ?",
-			history.TenantID, history.CustomerID, history.InputHash, intentStatusRunning).
+		Where("tenant_id = ? AND customer_id = ? AND dedup_key = ? AND status = ?",
+			history.TenantID, history.CustomerID, history.DedupKey, intentStatusRunning).
 		Order("id DESC").
 		First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -860,6 +865,15 @@ func (h *IntentHandler) findIntentAnalysisByInput(ctx context.Context, history *
 		return nil, err
 	}
 	return &existing, nil
+}
+
+func intentAnalysisDedupKey(inputHash, promptVersion, modelConfigVersion string) string {
+	sum := sha256.Sum256([]byte(
+		strings.TrimSpace(inputHash) + "\x00" +
+			strings.TrimSpace(promptVersion) + "\x00" +
+			strings.TrimSpace(modelConfigVersion),
+	))
+	return fmt.Sprintf("%x", sum)
 }
 
 func waitIntentRetry(ctx context.Context, attempt int) error {

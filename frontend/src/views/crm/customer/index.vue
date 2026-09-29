@@ -303,12 +303,69 @@
         <el-button v-if="intentCustomer && store.hasPerm('crm:intent:analyze')" @click="onRetry">重试最近失败</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="taskVisible" title="批量AI分析任务" width="760px" destroy-on-close>
+      <el-skeleton v-if="taskLoading && !batchTask" :rows="5" animated />
+      <template v-else-if="batchTask">
+        <div class="task-header">
+          <div>
+            <div class="task-title">任务 #{{ batchTask.id }}</div>
+            <div class="muted-text">提交时间：{{ formatBeijingTime(batchTask.createdAt) }}</div>
+          </div>
+          <el-tag :type="taskTag(batchTask.status)">{{ taskText(batchTask.status) }}</el-tag>
+        </div>
+        <el-progress
+          :percentage="taskProgress(batchTask)"
+          :status="batchTask.status === 'failed' ? 'exception' : batchTask.status === 'success' ? 'success' : undefined"
+          :format="formatTaskProgress"
+        />
+        <div class="task-counts">
+          <span>排队中 {{ batchTask.pendingCount }}</span>
+          <span>处理中 {{ batchTask.runningCount }}</span>
+          <span class="success-text">成功 {{ batchTask.successCount }}</span>
+          <span class="danger-text">失败 {{ batchTask.failedCount }}</span>
+          <span>取消 {{ batchTask.canceledCount }}</span>
+        </div>
+        <el-alert v-if="batchTask.errorMessage" :title="batchTask.errorMessage" type="error" :closable="false" />
+        <el-table v-if="batchTask.items?.length" :data="batchTask.items" border stripe max-height="300" style="margin-top: 12px">
+          <el-table-column prop="customerId" label="客户ID" width="100" />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="taskTag(row.status)">{{ taskText(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="attempts" label="尝试次数" width="100" />
+          <el-table-column prop="errorMessage" label="失败原因" min-width="260" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-else description="任务明细尚未生成" :image-size="70" />
+      </template>
+      <template #footer>
+        <el-button @click="taskVisible = false">关闭</el-button>
+        <el-button
+          v-if="batchTask && ['pending', 'running'].includes(batchTask.status)"
+          type="warning"
+          plain
+          :loading="taskActionLoading"
+          @click="cancelBatchTask"
+        >
+          取消未开始任务
+        </el-button>
+        <el-button
+          v-if="batchTask && batchTask.failedCount > 0 && !['pending', 'running'].includes(batchTask.status)"
+          type="primary"
+          :loading="taskActionLoading"
+          @click="retryFailedBatchTask"
+        >
+          重试失败项
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'CrmCustomer' })
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -325,9 +382,12 @@ import {
   compareCustomerIntent,
   listCustomerIntentHistory,
   batchAnalyzeCustomerIntent,
+  getCustomerIntentTask,
+  cancelCustomerIntentTask,
+  retryCustomerIntentTask,
 } from '@/api/crm'
 import { listAllTenants } from '@/api/system'
-import type { Customer, CustomerIntent, CustomerIntentFeedback, CustomerIntentHistory, Tenant } from '@/types/api'
+import type { Customer, CustomerIntent, CustomerIntentFeedback, CustomerIntentHistory, CustomerIntentTask, Tenant } from '@/types/api'
 import { useUserStore } from '@/store/user'
 import { formatBeijingTime } from '@/utils/datetime'
 
@@ -382,6 +442,11 @@ const feedback = reactive({
   manualIntentLevel: undefined as 'high' | 'medium' | 'low' | 'unknown' | undefined,
   note: '',
 })
+const taskVisible = ref(false)
+const taskLoading = ref(false)
+const taskActionLoading = ref(false)
+const batchTask = ref<CustomerIntentTask | null>(null)
+let taskPollTimer: ReturnType<typeof setInterval> | undefined
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
@@ -416,6 +481,20 @@ function feedbackTypeText(type: CustomerIntentFeedback['feedbackType']) {
 }
 function acceptedText(accepted?: boolean | null) {
   return accepted == null ? '未填写' : accepted ? '是' : '否'
+}
+function taskText(status: CustomerIntentTask['status']) {
+  return status === 'pending' ? '排队中' : status === 'running' ? '处理中' : status === 'success' ? '已完成' : status === 'failed' ? '部分失败' : '已取消'
+}
+function taskTag(status: CustomerIntentTask['status']) {
+  return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'canceled' ? 'info' : status === 'running' ? 'warning' : ''
+}
+function taskProgress(task: CustomerIntentTask) {
+  if (!task.totalCount) return 0
+  return Math.min(100, Math.round(((task.successCount + task.failedCount + task.canceledCount) / task.totalCount) * 100))
+}
+function formatTaskProgress() {
+  const task = batchTask.value
+  return task ? `${task.successCount + task.failedCount + task.canceledCount}/${task.totalCount}` : '0/0'
 }
 
 const latestFeedback = computed(() => feedbackHistory.value[0] ?? null)
@@ -592,11 +671,69 @@ async function onBatchAnalyze() {
     followUpStatus: selected ? undefined : query.followUpStatus || undefined,
     limit: 50,
   })
+  batchTask.value = task
+  taskVisible.value = true
+  startTaskPolling(task.id)
   ElMessage.success(`已提交任务，共${task.totalCount}个客户`)
   load()
 }
 
+function stopTaskPolling() {
+  if (taskPollTimer) {
+    clearInterval(taskPollTimer)
+    taskPollTimer = undefined
+  }
+}
+
+function startTaskPolling(taskId: number) {
+  stopTaskPolling()
+  void refreshBatchTask(taskId)
+  taskPollTimer = setInterval(() => void refreshBatchTask(taskId), 2500)
+}
+
+async function refreshBatchTask(taskId = batchTask.value?.id) {
+  if (!taskId) return
+  taskLoading.value = true
+  try {
+    const task = await getCustomerIntentTask(taskId)
+    if (!batchTask.value || batchTask.value.id === taskId) batchTask.value = task
+    if (!['pending', 'running'].includes(task.status)) stopTaskPolling()
+  } finally {
+    taskLoading.value = false
+  }
+}
+
+async function cancelBatchTask() {
+  if (!batchTask.value) return
+  await ElMessageBox.confirm('只会取消尚未开始的任务明细，已在处理中的项目不会中断。', '取消批量任务', { type: 'warning' })
+  taskActionLoading.value = true
+  try {
+    batchTask.value = await cancelCustomerIntentTask(batchTask.value.id)
+    stopTaskPolling()
+    ElMessage.success('已取消尚未开始的任务')
+    await load()
+  } finally {
+    taskActionLoading.value = false
+  }
+}
+
+async function retryFailedBatchTask() {
+  if (!batchTask.value) return
+  await ElMessageBox.confirm(`确认重试 ${batchTask.value.failedCount} 个失败项？系统会创建新的批量任务并保留原任务记录。`, '重试失败项', { type: 'warning' })
+  taskActionLoading.value = true
+  try {
+    const failedItemIds = batchTask.value.items?.filter((item) => item.status === 'failed').map((item) => item.id)
+    const task = await retryCustomerIntentTask(batchTask.value.id, failedItemIds)
+    batchTask.value = task
+    startTaskPolling(task.id)
+    ElMessage.success(`已创建重试任务，共${task.totalCount}个客户`)
+  } finally {
+    taskActionLoading.value = false
+  }
+}
+
 watch(onlyMine, () => load(1))
+onBeforeUnmount(stopTaskPolling)
 
 function openDialog(row?: Customer) {
   editingId.value = row?.id ?? null
@@ -714,5 +851,35 @@ onMounted(async () => {
 .feedback-note {
   margin-top: 4px;
   white-space: pre-wrap;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.task-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.task-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.success-text {
+  color: var(--el-color-success);
+}
+
+.danger-text {
+  color: var(--el-color-danger);
 }
 </style>

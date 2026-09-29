@@ -430,6 +430,7 @@ type CrmCustomerIntentAnalysis struct {
 	ProviderRequestID    string     `gorm:"size:128" json:"providerRequestId"`
 	ErrorType            string     `gorm:"size:32;index" json:"errorType"`
 	InputHash            string     `gorm:"size:64;index" json:"inputHash"`
+	DedupKey             string     `gorm:"size:64;index" json:"-"`
 	CostMillis           int64      `json:"costMillis"`
 	AnalyzedAt           *time.Time `json:"analyzedAt"`
 }

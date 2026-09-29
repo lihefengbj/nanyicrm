@@ -109,3 +109,30 @@ func TestIsCurrentIntentAnalysis(t *testing.T) {
 		t.Fatal("older analysis should not be current")
 	}
 }
+
+func TestIntentAnalysisDedupKeyIncludesGovernanceVersions(t *testing.T) {
+	base := intentAnalysisDedupKey("input-a", "p-v1", "model-v1")
+	if base == "" {
+		t.Fatal("intentAnalysisDedupKey() returned empty key")
+	}
+	tests := []struct {
+		name          string
+		inputHash     string
+		promptVersion string
+		modelVersion  string
+	}{
+		{name: "input", inputHash: "input-b", promptVersion: "p-v1", modelVersion: "model-v1"},
+		{name: "prompt", inputHash: "input-a", promptVersion: "p-v2", modelVersion: "model-v1"},
+		{name: "model", inputHash: "input-a", promptVersion: "p-v1", modelVersion: "model-v2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := intentAnalysisDedupKey(tt.inputHash, tt.promptVersion, tt.modelVersion); got == base {
+				t.Fatalf("dedup key did not change for %s", tt.name)
+			}
+		})
+	}
+	if got := intentAnalysisDedupKey(" input-a ", " p-v1 ", " model-v1 "); got != base {
+		t.Fatalf("dedup key should normalize version components: got %q want %q", got, base)
+	}
+}
